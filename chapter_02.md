@@ -180,7 +180,31 @@ cmake --build build  # 编译
 
 ### 多文件项目
 
-现在把项目拆成多个文件：
+为了掩饰CMake的多文件项目的编译方法，我们先来构建一个词法分析器（lexer）。
+
+这个函数用来实现分词的。比如`var x = 10;`这个语句，lexer用来把这个句子拆开成这样：
+
+```
+var
+x
+=
+10
+```
+
+每一行都是一个Token。
+
+然后识别出各个Token的类型（Type）：
+
+```
+var --> "Identifier"
+x   --> "Identifier"
+=   --> "Equals"
+10  --> "Number"
+```
+
+也就是说，我们需要一个储存所有"类型（`TokenType`）"的`enum`，以及一个`struct`，用来储存原始的值和他对应的`TokenType`。
+
+我们先来构建一个极其简略的lexer。这个项目放在：
 
 ```
 taco/
@@ -203,15 +227,17 @@ enum class TokenType {
     String,
     Identifier,
     Plus,
+    Equals,
     EndOfFile,
 };
 
 struct Token {
-    TokenType type;
-    std::string value;
+    TokenType type;       // 这个词的类型
+    std::string value;    // 这个词的原始文本（string类型）
 };
 
-std::vector<Token> tokenize(const std::string& source);
+std::vector<Token> tokenize(const std::string& source); // 这个函数用来实现分词，输入string的地址，返回一个Token类型的动态数组
+// 注意这里只是header，具体的函数在.cpp里面实现
 ```
 
 `src/lexer.cpp`：
@@ -264,6 +290,16 @@ target_include_directories(taco PRIVATE src)
 cmake --build build
 ./build/taco
 ```
+
+运行的结果是：
+
+```bash
+forrest@debian:~/test/taco$ ./build/taco
+Taco 0.1.0
+Tokens 0
+```
+
+Tokens为0是因为我们的函数故意返回空列表。
 
 ---
 
