@@ -734,7 +734,8 @@ int main(int argc, char* argv[]) {
     }
 
     auto content = read_file(script_path.string());
-    // 注意，这里只能用 `path.string()` 这个是该类型（`fs::path`）自己实现的 `string` 转换，是特殊的，`std::string(path)` 不认识这个 `fs::path` 这个类型，也就不能去转换为 `string` ，会报错。
+    // 注意，这里只能用 `path.string()` 这个是该类型（`fs::path`）自己实现的 `string` 转换，是特殊的，
+    // `std::string(path)` 不认识这个 `fs::path` 这个类型，也就不能去转换为 `string` ，会报错。
     if (!content) {
         std::cerr << "🌮 Error: cannot read file\n";
         return 1;
