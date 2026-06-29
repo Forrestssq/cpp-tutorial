@@ -41,7 +41,7 @@ int len = strlen(name);  // O(n) 操作
 
 ---
 
-### std::string：真正的字符串类
+### `std::string`：真正的字符串类
 
 `std::string` 解决了 C 字符串的所有主要问题：
 
@@ -63,9 +63,11 @@ std::cout << name.size() << "\n";  // 6
 name += " Rivera";  // 自动扩展
 ```
 
+（好厉害。）
+
 ---
 
-### std::string 的常用操作
+### `std::string` 的常用操作
 
 ```cpp
 std::string s = "Hello, World!";
@@ -73,13 +75,13 @@ std::string s = "Hello, World!";
 // 长度
 s.size();      // 13
 s.length();    // 同上，两个函数等价
-s.empty();     // false
+s.empty();     // 判断string是否为空。这里输出 false
 
 // 访问字符
 s[0];          // 'H'，不做边界检查
 s.at(0);       // 'H'，做边界检查，越界抛异常
 
-// 子串
+// 切片 
 s.substr(7, 5);      // "World"，从下标 7 开始，取 5 个字符
 s.substr(7);         // "World!"，从下标 7 到结尾
 
@@ -87,25 +89,117 @@ s.substr(7);         // "World!"，从下标 7 到结尾
 s.find("World");     // 7，返回第一次出现的位置
 s.find("world");     // std::string::npos，找不到
 
+// npos 是 std::string 里的一个特殊常量，表示"没找到"：
+// cppstatic const size_t npos = -1;
+
 // 是否包含（C++23 才有 contains，C++17 用 find）
 s.find("World") != std::string::npos;  // true
+s.contains("World"); // true
+// 上面两种方式等价
 
 // 替换
 s.replace(7, 5, "Taco");  // "Hello, Taco!"
+// s.replace(起始位置, 要替换的长度, 新字符串);
 
-// 首尾操作
+// 取出首尾的字符
 s.front();     // 'H'
 s.back();      // '!'
+
+// 返回的是迭代器（后面会讲到，先大概有个印象）
+s.begin(); // 指向第一个字符
+s.end();   // 指向最后一个字符的下一个位置
 
 // 插入和删除
 s.insert(7, "Beautiful ");  // 在下标 7 处插入
 s.erase(7, 10);             // 从下标 7 删除 10 个字符
+```
 
-// 转换大小写（标准库没有直接提供，需要借助算法）
-#include <algorithm>
-#include <cctype>
+C++ 的 `std::string` 没有直接提供 `toUpper()` 或 `toLower()` 这样的方法，需要借助两个库来实现：
+
+```cpp
+#include <algorithm>  // 提供 std::transform
+#include <cctype>     // 提供 toupper / tolower
+```
+
+`<cctype>` 是 C 标准库 `ctype.h` 的 C++ 版本，提供字符操作函数。其中 `toupper` 和 `tolower` 的签名是：
+
+```cpp
+int toupper(int c);  // 传入一个字符，返回它的大写形式
+int tolower(int c);  // 传入一个字符，返回它的小写形式
+```
+
+例如：
+
+```cpp
+toupper('a');  // 返回 'A'
+tolower('A');  // 返回 'a'
+toupper('1');  // 返回 '1'，不是字母就原样返回
+```
+
+实际转换用 `std::transform`：
+
+```cpp
 std::transform(s.begin(), s.end(), s.begin(), ::toupper);
 ```
+
+`std::transform` 的语法是：
+
+`std::transform(输入开始, 输入结束, 输出开始, 操作函数);`
+
+
+它内部大概是这样工作的：
+
+```cpp
+for (auto it = 输入开始; it != 输入结束; ++it) {
+    *输出 = 操作函数(*it);  // 把每个字符传给函数，结果写到输出
+    ++输出;
+}
+```
+
+所以这行代码的意思是：对 s 里的每个字符调用 `toupper`，结果写回 s 本身，实现原地转大写。
+
+这里的 `::toupper` 是把函数地址作为参数传给 `transform`，`::` 表示全局命名空间，用来和 `std::` 里可能存在的同名函数区分开。实际上直接写 `toupper` 也可以：
+
+```cpp
+std::transform(s.begin(), s.end(), s.begin(), toupper);
+```
+
+转小写同理，换成 `tolower`：
+
+```cpp
+std::transform(s.begin(), s.end(), s.begin(), tolower);
+```
+
+Tips：
+在C++中有一个遗留的C问题。比如下面的代码将会报错：
+
+```cpp
+std::cout << "hello" + "hola";
+```
+
+我们可能会疑惑：这个不是string的加号拼接吗，怎么会报错呢？
+
+在C++中，形如`"Hello"` 这样的并不是C++的string，而是C中的 `const char*` ，也就是说，它本质上是一个指针！指针不能相加。如果要实现`"hello" + "hola"` 的话，方法有：
+
+1. 对第一个加`s`，转换成C++中的string，后面的将会自动转换：
+
+```cpp
+using namespace std::string_literals;
+std::cout << "hello"s + "hola";
+```
+
+2. 强制类型转换：
+
+```cpp
+std::cout << std::string("hello") + "hola";
+```
+
+3. 不用强制类型转换，用字符串的空格拼接法：
+
+```cpp
+std::cout << "hello" "hola";
+```
+
 
 ---
 
@@ -142,6 +236,7 @@ R"(hello\nworld)" // 原始字符串字面量，\n 不会被转义
 u8"你好"          // UTF-8 编码的字符串
 ```
 
+
 原始字符串字面量在写正则表达式或 JSON 时很有用：
 
 ```cpp
@@ -151,6 +246,24 @@ std::string json = "{ \"name\": \"Miguel\", \"age\": 12 }";
 // 原始字符串，不需要转义
 std::string json = R"({ "name": "Miguel", "age": 12 })";
 ```
+
+
+C++17 及之前`u8"你好"`的类型是 `const char*`，和普通字符串基本一样。
+
+但是在C++20 之后它的类型变成了 `const char8_t*`，和 `const char*`不兼容，不能直接赋给 `std::string`，需要强制转换：
+
+```cpp
+std::string s = reinterpret_cast<const char*>(u8"你好");
+```
+
+实际上现代系统基本默认就是 UTF-8，直接写：
+
+```cpp
+cppstd::string s = "你好";
+std::cout << s;
+```
+
+在 Linux 和 Mac 上完全没问题，不需要 `u8` 前缀。Windows 上可能需要额外设置编码。
 
 ---
 
@@ -315,15 +428,16 @@ std::cout << std::setw(10) << std::setfill('0') << 42 << "\n";  // 0000000042
 C++20 引入了 `std::format`，结合了 `printf` 的简洁和 `cout` 的类型安全：
 
 ```cpp
-#include <format>  // C++20
+#include <format>  // c++20
 
-std::string s = std::format("Name: {}, Age: {}", "Miguel", 12);
+std::string s = std::format("name: {}, age: {}", "miguel", 12);
 std::cout << s << "\n";
 
 // 格式控制
-std::cout << std::format("Pi: {:.2f}\n", 3.14159);  // Pi: 3.14
+std::cout << std::format("pi: {:.2f}\n", 3.14159);  // pi: 3.14
 std::cout << std::format("{:>10}\n", "right");       // 右对齐，宽度 10
 std::cout << std::format("{:0>5}\n", 42);            // 00042
+// 这里的 `:>10` 和 `:>5` 比c的 `%10d` `%5d` 更明确，因为他们表示的意思都是"至少有那么长，可以比他更长"。
 ```
 
 如果编译器不支持 C++20，可以用 `fmtlib`——`std::format` 的原型就是从 fmtlib 来的，API 几乎完全相同：
@@ -366,6 +480,7 @@ C++ 用 `fstream` 头文件里的类来处理文件：
 
 ```cpp
 std::ofstream file("output.txt");  // 创建并打开文件
+// ofstream = output file stream 从程序写出到文件
 if (!file) {
     std::cerr << "Failed to open file\n";
     return 1;
@@ -380,30 +495,29 @@ file << 42 << "\n";
 
 ```cpp
 std::ifstream file("input.txt");
+// ifstram = input file stream 从文件读入程序
 if (!file) {
     std::cerr << "File not found\n";
     return 1;
 }
-
 // 逐行读取
-std::string line;
-while (std::getline(file, line)) {
-    std::cout << line << "\n";
-}
 ```
+> 下面这个先大概了解一下吧，看不懂也没事。tips：`istreambuf_iterator` 是一个 `class`。
 
 **读取整个文件内容**：
 
 ```cpp
 std::ifstream file("script.taco");
-std::string content(
-    (std::istreambuf_iterator<char>(file)),
+std::string content{
+    std::istreambuf_iterator<char>(file)),
     std::istreambuf_iterator<char>()
-);
+};
 // content 现在包含文件的全部内容
 ```
 
 这种写法有点奇怪，但是很常用的惯用法。也可以用更直观的方式：
+
+> 下面的是可以看懂的哦，还配有讲解。
 
 ```cpp
 std::ifstream file("script.taco");
@@ -411,6 +525,41 @@ std::ostringstream buffer;
 buffer << file.rdbuf();
 std::string content = buffer.str();
 ```
+
+讲解：
+
+1. `std::ostringstream buffer`
+
+`ostringstream` = output string stream，是一个**字符串流**，你可以把东西往里"写"，最后调用 `.str()` 取出拼好的字符串。
+
+可以把它想象成一个字符串拼接容器：
+
+```cpp
+std::ostringstream buffer;
+buffer << "hello";
+buffer << " world";
+buffer.str();  // → "hello world"
+```
+
+2. `file.rdbuf()`
+
+`rdbuf` = read buffer，是 `std::ifstream` 的一个成员函数，返回这个文件底层的**缓冲区指针**。
+
+缓冲区是什么：C++ 读文件不是直接从磁盘一个字符一个字符取，而是先把文件内容整块读进内存，这块内存就叫缓冲区。`rdbuf()` 就是把这块缓冲区暴露出来。
+
+前面的 `std::ifstram` 把文件的内容分块读入缓存。因此这里用 `.rdbuf()` 把缓存中的内容读取出来，并用 `<<` 刷到 `buffer` 流中。
+
+3. `buffer << file.rdbuf()`
+
+`<<` 是流的插入运算符，`ostringstream` 的 `<<` 支持直接接收一个缓冲区，内部会把缓冲区里所有字节读出来写进 `buffer`。
+
+所以这一行等价于：
+
+```
+把 file 缓冲区里的所有内容 → 全部写入 buffer
+```
+
+一行 `buffer << file.rdbuf()` 就把整个文件内容灌进了 `buffer`，比手动用迭代器遍历更简洁。
 
 ---
 
@@ -423,7 +572,7 @@ std::ofstream file("log.txt", std::ios::app);  // 追加模式
 file << "New log entry\n";
 ```
 
-常用的打开模式：
+常用的打开模式（可以组合使用，中间用"按位或" `|` 分隔开，表示同时需要这些模式）：
 
 ```cpp
 std::ios::in      // 读（ifstream 默认）
@@ -433,7 +582,7 @@ std::ios::binary  // 二进制模式
 std::ios::trunc   // 清空文件（out 默认包含）
 ```
 
-可以组合使用：
+`ofstream` `ifstream` 都是单向的（程序-->文件 或者 文件-->程序），`fstream` 支持双向（程序<- ->文件）。
 
 ```cpp
 // 读写都支持，二进制模式
@@ -518,6 +667,7 @@ std::cout << p.parent_path() << "\n";  // 父目录
 // 列出目录内容
 for (const auto& entry : fs::directory_iterator(".")) {
     std::cout << entry.path().filename() << "\n";
+    // 注意，这里是对 `path` 才可以操作的！也就是说，先要 `.path()`，然后再用 `.filename()`、`.extension()`等等。
 }
 
 // 递归列出
@@ -584,6 +734,7 @@ int main(int argc, char* argv[]) {
     }
 
     auto content = read_file(script_path.string());
+    // 注意，这里只能用 `path.string()` 这个是该类型（`fs::path`）自己实现的 `string` 转换，是特殊的，`std::string(path)` 不认识这个 `fs::path` 这个类型，也就不能去转换为 `string` ，会报错。
     if (!content) {
         std::cerr << "🌮 Error: cannot read file\n";
         return 1;
