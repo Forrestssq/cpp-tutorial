@@ -192,7 +192,7 @@ void process_file() {
 
 ## 8.3 初始化列表
 
-回到 Lexer 的构造函数。上一节用的是赋值方式初始化：
+回到 Lexer 的构造函数。上一节（8.1）举例时用的是赋值方式初始化：
 
 ```cpp
 Lexer::Lexer(std::string source) {
@@ -203,7 +203,7 @@ Lexer::Lexer(std::string source) {
 }
 ```
 
-C++ 提供了另一种方式：**初始化列表**（member initializer list）：
+但第七章 `lexer.cpp` 里实际写的是另一种方式：**初始化列表**（member initializer list），当时留了个坑，现在来填上：
 
 ```cpp
 Lexer::Lexer(std::string source)
