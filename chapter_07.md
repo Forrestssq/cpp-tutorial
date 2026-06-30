@@ -532,13 +532,19 @@ int main(void) {
 
 最后提一个 `static` 成员常见的实际用途：单例模式，让一个类全局只能存在一个实例。
 
+> 详细的讲解见后面的 More about `static` 章节。
+
 ```cpp
 class Logger {
 public:
-    static Logger& get_instance() {
-        static Logger instance;   // 注意：这里的 static 是另一种用法（局部静态变量），后面可以单独展开讲
+    static Logger& get_instance() { // 这行的static 表示：类的 static 成员，所有的实例共用它
+        static Logger instance;     // 这行的static 表示：局部静态变量，它只在第一次调用时构造
         return instance;
     }
+    
+    void log(const std::string& message) { // 补上这个成员函数 
+	    std::cout << "[LOG] " << message << "\n"; 
+	}
 private:
     Logger() {}   // 构造函数设为 private，外部无法直接 new 一个
 };
@@ -546,7 +552,7 @@ private:
 Logger::get_instance().log("hello");
 ```
 
-这种写法依赖的正是 `static` 成员函数不需要对象就能调用的特性，是个常见的实际应用场景，但属于进阶用法，先了解 `static` 的基本概念，这类设计模式之后单独学也来得及。
+这种写法依赖的正是 `static` 成员函数不需要对象就能调用的特性，是个常见的实际应用场景，但属于进阶用法。
 
 ### 串起来看一个完整的例子
 
@@ -585,6 +591,131 @@ int Person::s_count = 0;
 这一个类涵盖了：访问控制（`private` 数据 + `public` 接口）、构造函数（带初始化列表和 `explicit`）、析构函数、普通成员函数、`const` 成员函数、`static` 成员变量和成员函数。这基本就是单个类能用到的全部基础工具了——拷贝构造/拷贝赋值（对象被复制时发生什么）、运算符重载、继承和虚函数，是在此之上的进阶话题，分别属于不同的主题，需要单独展开讲。
 
 ---
+
+## More About `static` 与 单例
+
+前面讲的 `static` 都是"类的 `static` 成员"这一种用法，但 `static` 这个关键字在 C++ 里其实还有别的含义，单例模式里用到的正是另外一种——局部静态变量（local static variable）。它和在 `C` 中的含义是一样的。
+
+先脱离类，单独看一下局部静态变量是什么。
+
+```cpp
+void counter_func() {
+    static int count = 0;   // 只在第一次执行到这一行时初始化
+    count++;
+    std::cout << count << "\n";
+}
+
+counter_func();   // 输出 1
+counter_func();   // 输出 2
+counter_func();   // 输出 3
+```
+
+普通的局部变量，每次调用函数都会重新创建一份，函数一返回就销毁，下次调用又是全新的一份——这也是为什么普通局部变量没法用来"记住"上次调用时的状态。但加上 `static` 之后，情况变了：这个变量**只在第一次执行到这行代码时初始化一次**，之后无论这个函数被调用多少次，都直接复用同一块内存，不会重新初始化，函数返回时也不会销毁它，要一直等到整个程序结束才会销毁。它的生命周期跟全局变量一样长，但作用域依然只在函数内部可见，外面访问不到——相当于"生命周期是全局的，可见范围是局部的"。
+
+理解了这一点，回头再看单例模式那段代码：
+
+```cpp
+class Logger {
+public:
+    static Logger& get_instance() { // 这行的static 表示：类的 static 成员，所有的实例共用它
+        static Logger instance;     // 这行的static 表示：局部静态变量，它只在第一次调用时构造
+        return instance;
+    }
+    
+    void log(const std::string& message) { // 补上这个成员函数 
+	    std::cout << "[LOG] " << message << "\n"; 
+	}
+private:
+    Logger() {}   // 构造函数设为 private，外部无法直接 new 一个
+};
+
+Logger::get_instance().log("hello");
+```
+
+看 `private:` 后面的这个空函数 `Logger() {}` 。这个函数名和这个 `class` 名是一样的，所以它是我们显式地初始化 `class` ！
+
+> `Tips`:
+> 希望你仍然记得"构造函数"章节里面，我们提到过，如果对一个 `class` 没有写用来初始化的构造函数（就是专门用来给 `class` 初始化的函数， 复杂一点的长这样： `Counter(std::string name) m_counter_name(name) {};`），那么 `C++` 会自动补上空的构造函数：
+
+```cpp
+class Logger { 
+public: 
+	void log(const std::string& message) { 
+	// 省略...
+	}
+private:
+	// 省略...
+}
+
+// 上面的代码将补齐成下面这样：
+class Logger {
+public:
+	Logger() {}; // 加上了这行
+	void log(const std::string& message) {
+	// 省略...
+	}
+private:
+	// 省略...
+}
+```
+
+> 但是如果我们写了一个构造函数，那么 `C++` 就不会为我们在 `public:` 下自动生成这个空的构造函数。
+
+我们知道，在 `public:` 下的内容在外部是可以被调用的，所以构造函数默认放在 `public:` 下，这样我们才可以在外面调用它来初始化一个实例。
+
+那么，如果我们突发奇想地把构造函数放在 `private:` 下，外面就不能调用它了；也就是说，在外部无法初始化这个 `class` 的实例。
+
+又注意到，我们可以构造一个 `static` 成员变量或函数，而这个变量或函数不需要实例化就可以存在。
+
+把两个合起来，再看一遍这个`class`：
+
+```cpp
+class Logger {
+public:
+    static Logger& get_instance() { // 这行的static 表示：类的 static 成员，所有的实例共用它
+        static Logger instance;     // 这行的static 表示：局部静态变量，它只在第一次调用时构造
+        // 这里是在初始化 Logger 的实例。因为这一行代码写在 `Logger` 类**自己的成员函数**里面，
+        // 而 `private` 规则允许类的成员函数访问本类的 `private` 成员，
+        // 所以可以访问 `private` 下的构造函数，进而实例化。
+        // FYI，实例化一个 class 的语法就是 `class名 实例名;` ，
+        // 然后 `C++` 会自动调用 构造函数 Logger() 来初始化实例。
+        return instance;
+    }
+    
+    void log(const std::string& message) { // 补上这个成员函数 
+	    std::cout << "[LOG] " << message << "\n"; 
+	}
+private:
+    Logger() {}   // 构造函数设为 private，外部无法直接 new 一个
+};
+
+Logger::get_instance().log("hello");
+```
+
+在外部无法实例化 `Logger` 对象（因为无法访问构造函数），但可以调用 `Logger::get_instance()`；而 `get_instance()` 这个函数本来有权限访问同一个 `class` 下的构造函数，所以它能在内部造出对象，再把这个对象交给外部用。 
+
+ `get_instance()` 之所以能保证"只造一次"，靠的是第二个`static`：`static Logger instance;`——这里的 `static` 已经不是"类的 static 成员"这种用法了，而是表示另一种含义：局部静态变量：
+ 
+```cpp 
+static Logger& get_instance() { 
+	static Logger instance; // 只在第一次调用 get_instance() 时，这一行才会真正执行构造 
+	return instance; // 之后每次调用，这一行直接跳过，instance 还是原来那个
+} 
+```
+
+所以不管外部代码调用 `Logger::get_instance()` 多少次，`instance` 自始至终只会被构造那一次。
+
+后续每次调用都只是把同一个对象的引用再返回一遍，全程序里实实在在存在的 `Logger` 对象永远只有这一个——这正是"单例"这个名字想表达的：单，独此一份的意思。 
+
+`get_instance()` 是一个 `static` 成员函数，不需要先有对象就能调用。
+
+它内部的 `static Logger instance;` 是一个局部静态变量——`instance` 只会在第一次调用 `get_instance()` 时被真正构造出来，之后不管再调用 `get_instance()` 多少次，返回的都是同一个 `instance`，不会重复构造。
+
+又因为 `Logger` 的构造函数是 `private` 的，外部代码没办法绕开 `get_instance()` 自己创建另一个 `Logger` 对象，这就保证了全局范围内 `Logger` 只可能存在这一份实例——这正是"单例"这个名字的由来。这种写法有个专门的名字，叫 Meyer's Singleton（以提出者 Scott Meyers 命名），是现代 C++ 里最常见、最推荐的单例实现方式。
+
+值得一提的是，C++11 标准专门为局部静态变量的初始化加了一条保证：**如果多个线程同时第一次调用到这行代码，标准保证只有一个线程会真正执行构造，其他线程会等待这次构造完成，不会出现重复构造或构造到一半被另一个线程读到的情况**。这条保证俗称"magic statics"（神奇静态量），是 C++11 才正式写进标准的行为。这也是为什么 Meyer's Singleton 在现代 C++ 里特别受欢迎——在它之前，想写一个线程安全的单例，得自己手动加锁、做双重检查锁定（double-checked locking）之类相当容易出错的操作，而局部静态变量的写法把这件事完全交给编译器和语言标准来保证，代码反而更短、更不容易出 bug。
+
+>补充一句，与C一样，`static` 在 C++ 里其实还有有一种用法：写在全局作用域的变量或函数前面（比如 `static int x = 0;` 写在文件最外层，不在任何类或函数里），作用是把这个变量或函数的链接属性限制成"内部链接"（internal linkage），意思是它只在当前这一个源文件里可见，不会被其他 `.cpp` 文件看到，用来避免不同源文件之间因为重名而冲突。
 
 ## 7.2 成员变量与成员函数
 
