@@ -48,9 +48,140 @@ Token 列表：
 
 ## 6.2 用结构体和枚举实现 Token
 
-先定义 Token 的数据结构。这一章用的都是 C++ 的基础特性——结构体和枚举——还没有涉及类和继承。
+我们首先需要一个容器来储存 `TokenType` 。用什么来储存类似于 `Number`、 `String`、 `True` 这样的数据呢？
+
+我们很容易想到用 `enum` 枚举类型。
+
+但普通 `enum` 有几个问题：
+
+```cpp
+// 普通 enum：会隐式转换成 int，不同枚举的值可能冲突
+enum Color { Red, Green, Blue };
+enum Direction { North, South, East, West };
+
+int c = Red;   // 可以，但这通常不是你想要的
+if (Red == North) { ... }  // 比较两个不相关的枚举，编译器不报错！
+```
+
+另一个隐患是枚举成员的名字会污染外层作用域。比如同时定义两个枚举，如果都有一个叫Red的成员，会直接撞名报错：
+
+```cpp
+enum Color { Red, Green, Blue };
+enum TrafficLight { Red, Yellow, Green };  // 错误！Red 和 Green 重复定义
+```
+
+为了解决这些问题，在 `C++11` 中引入了一个强类型枚举类型 `enum class` 。
+
+> `enum class` 既不是 `enum` 也不是 `class`，而是借用了一下名字（为了不新建一个关键字），只是它的语法跟 `enum` 大致一样而已。
+
+#### enum class 和 enum 的语法差异
+
+第一，声明语法多了一个关键字：
+
+```cpp
+enum Color { Red, Green, Blue };          // enum
+enum class Color { Red, Green, Blue };    // 多了 class
+enum struct Color { Red, Green, Blue };   // 或者多了 struct，效果完全等价
+```
+
+第二，访问成员的写法不一样：
+
+```cpp
+enum Color { Red, Green, Blue };
+Color c = Red;              // 直接用 Red，不用加前缀
+
+enum class Direction { North, South };
+Direction d = North;              // 错误！必须带前缀
+Direction d = Direction::North;   // 正确，必须加 Direction::
+```
+
+老式 `enum` 的成员名直接暴露在外层作用域；`enum class` 的成员名被限定在类型名内部，访问时强制要求加 `类型名::` 前缀，因此不同枚举之间的成员不会撞名。
+
+第三，隐式类型转换的规则不一样：
+
+```cpp
+enum Color { Red, Green, Blue };
+int x = Red;          // 合法，隐式转 int
+
+enum class Direction { North, South };
+int y = North;                                 // 错误！不允许隐式转换
+int y = static_cast<int>(Direction::North);    // 必须显式转换才行
+```
+
+> `Tips`: **static_cast**
+>
+> 它是C++提供的几种"类型转换"操作符之一，专门用来做显式的、编译期检查的类型转换。语法长这样：
+>
+>```cpp
+>  static_cast<目标类型>(要转换的东西)
+>```
+>
+> static_cast不需要加std::，因为它根本不是std命名空间里的一个函数或对象，而是C++语言本身内置的一个关键字，属于语法层面的东西，就跟if、for、return一样，是语言自带的，不需要任何命名空间前缀。
+
+
+第四，前向声明的能力不一样：
+
+```cpp
+enum Color;              // 错误！老式 enum（未指定底层类型时）不能前向声明
+enum class Color;        // 正确！enum class 可以直接前向声明
+```
+
+两者相同的一点是，指定底层类型的语法完全一样：
+
+```cpp
+enum Color : char { Red, Green, Blue };          // 老式 enum 也支持
+enum class Direction : char { North, South };    // enum class 也支持
+```
+
+结论是：`enum class` 借用了 `enum` 的基本骨架（关键字、花括号列举成员这套写法），但在成员访问、隐式转换、前向声明三处做了更严格的规则限制，并不是"语法完全一样"，而是"长得像但规则更严格"。
+
+> `Tips`: **前向声明（Forward Declaration）**
+> 
+> 前向声明指的是：先告诉编译器"这个东西存在，它叫这个名字"，但暂时不给出完整定义，把细节留到后面再补。
+> 
+> 函数前向声明的例子：
+> 
+> ```cpp
+> // 前向声明：只说"这个函数存在，长这样"
+> int add(int a, int b);
+> 
+> int main() {
+>     int result = add(3, 5);   // 编译器已经知道 add 长什么样，可以放心调用
+>     return 0;
+> }
+>
+> // 真正的实现，放在后面
+> int add(int a, int b) {
+>     return a + b;
+> }
+> ```
+> 
+> 如果没有前面那行声明，编译器在 `main` 里看到 `add(3, 5)` 时还不认识这个函数（因为定义在后面），会报错找不到。前向声明相当于提前给编译器打个招呼。
+> 
+> `enum class` 的前向声明：
+> 
+> ```cpp
+> enum class Color;        // 前向声明：只说"有一个叫 Color 的枚举类型"
+> 
+> // ... 中间可能隔着很多代码，甚至在另一个文件里 ...
+> 
+> enum class Color { Red, Green, Blue };  // 真正的完整定义在这里给出
+> ```
+> 
+> 这在大型项目里很有用，比如 `token.h` 和 `ast.h` 这类文件经常需要互相引用对方的类型，如果两个头文件互相 `#include`，容易陷入循环包含的死结。这时可以先做前向声明，告诉编译器"这个类型存在，我先用着"，等真正需要访问具体成员时，再正式包含对应的头文件。
+> 
+> 为什么 enum class 能前向声明而 enum 不行？老式 `enum` 在没有指定底层类型时，编译器需要先看到全部枚举成员，才能推算出用多大的内存存储这个枚举；而 `enum class` 默认底层类型固定为 `int`，不需要靠成员推算，所以可以先声明、后定义。
 
 ### token.h
+
+在header里面我们需要：
+1. 用 `enum class` 定义一个 `TokenType` 类型；
+2. 用 `struct` 定义一个 `Token` 结构体，用来放：原始的值 + 对应的 `TokenType` +  `Token` 所在的行与列的编号，方便报错；
+3. 另外需要一个函数，接受一个 `TokenType` ，返回它被转换成的 `string` 名，方便查看、打印。
+
+那么开始吧。
+
+所需的代码是仓库的 `codeSources/v0-token.h`。  
 
 ```cpp
 #pragma once
@@ -143,35 +274,34 @@ struct Token {
 std::string token_type_to_string(TokenType type);
 ```
 
-为什么用 `enum class` 而不是普通的 `enum`？
-
-普通 `enum` 有两个问题：
-
-```cpp
-// 普通 enum：会隐式转换成 int，不同枚举的值可能冲突
-enum Color { Red, Green, Blue };
-enum Direction { North, South, East, West };
-
-int c = Red;   // 可以，但这通常不是你想要的
-if (Red == North) { ... }  // 比较两个不相关的枚举，编译器不报错！
-```
-
-`enum class` 解决了这两个问题：
-
-```cpp
-// enum class：类型安全
-enum class Color { Red, Green, Blue };
-enum class Direction { North, South, East, West };
-
-int c = Color::Red;            // 错误！不能隐式转换
-if (Color::Red == Direction::North) { ... }  // 错误！类型不匹配
-```
-
-用 `enum class` 写 TokenType，编译器会帮我们检查：如果不小心把 `TokenType::Number` 当 `int` 用，会直接报错，而不是悄悄产生 bug。
+用 `enum class` 写 `TokenType` ，编译器会帮我们检查：如果不小心把 `TokenType::Number` 当 `int` 用，会直接报错（因为 `enum TokenType` 或 `enum class TokenType` 声明完之后，就产生了 `TokenType` 这个类型名，地位与 `int` 等同），而不是悄悄产生 bug。
 
 ---
 
 ### token.cpp
+
+然后写这个函数的实现。
+
+> `Tips` `switch` 语法。
+> `C++` 中的 `switch` 语法和 `C` 中的一样，都是：
+>
+> ```cpp
+> switch (表达式) {
+>   case 值1:
+>     语句;
+>     break;
+>   case 值2:
+>     语句;
+>     return 值;  // 用 return 时可以不写 break
+>   default:
+>     语句;
+>     break;
+> }
+> ```
+>
+> 注意每个 `case` 后面要 `break;` ，否则会和 `C` 一样穿透。
+
+> 该文件在 `codeSources/v0-token.cpp`
 
 ```cpp
 #include "token.h"
@@ -244,545 +374,22 @@ std::string token_type_to_string(TokenType type) {
 
 ---
 
-## 6.3 实现词法分析器
+## 6.3 还差最后一步：怎么把 Token 扫描出来
 
-### lexer.h
+到这里，`Token` 和 `TokenType` 都已经就绪，但词法分析器还缺最后一块拼图：一个能读入源代码字符串、逐字符扫描、把它切成 Token 列表的东西——`Lexer`。
 
-```cpp
-#pragma once
-#include "token.h"
-#include <string>
-#include <vector>
-#include <unordered_map>
+`Lexer` 不能再用 `struct` 写了。它需要维护内部状态（读到第几个字符、第几行第几列），还需要一堆只在内部使用的辅助函数，又不想把这些细节暴露给外部代码。这种"数据 + 行为绑在一起，并且要隐藏内部细节"的需求，单靠 `struct` 和 `enum` 是不够的，需要 C++ 真正的面向对象工具——`class`。
 
-class Lexer {
-public:
-    // 构造函数：接收源代码字符串
-    explicit Lexer(std::string source);
-
-    // 核心接口：把源代码切成 Token 列表
-    std::vector<Token> tokenize();
-
-private:
-    std::string m_source;   // 源代码
-    int         m_pos;      // 当前读取位置
-    int         m_line;     // 当前行号
-    int         m_column;   // 当前列号
-
-    // 关键字表：字符串 → TokenType
-    static const std::unordered_map<std::string, TokenType> KEYWORDS;
-
-    // 辅助函数
-    char current() const;           // 当前字符
-    char peek(int offset = 1) const;// 向前看 offset 个字符
-    char advance();                 // 消费当前字符，前进一步
-    bool is_at_end() const;         // 是否到达末尾
-    bool match(char expected);      // 如果下一个字符匹配，消费并返回 true
-
-    // 创建 Token
-    Token make_token(TokenType type, const std::string& value) const;
-
-    // 跳过空白和注释
-    void skip_whitespace_and_comments();
-
-    // 各类 Token 的读取函数
-    Token read_number();
-    Token read_string();
-    Token read_identifier_or_keyword();
-    Token read_taco_emoji();
-
-    // 读取下一个 Token
-    Token next_token();
-};
-```
-
----
-
-### lexer.cpp
-
-```cpp
-#include "lexer.h"
-#include <stdexcept>
-#include <sstream>
-
-// 关键字表：static 成员，所有 Lexer 实例共享一份
-const std::unordered_map<std::string, TokenType> Lexer::KEYWORDS = {
-    {"var",     TokenType::Var},
-    {"func",    TokenType::Func},
-    {"if",      TokenType::If},
-    {"elseif",  TokenType::Elseif},
-    {"else",    TokenType::Else},
-    {"while",   TokenType::While},
-    {"for",     TokenType::For},
-    {"in",      TokenType::In},
-    {"return",  TokenType::Return},
-    {"true",    TokenType::True},
-    {"false",   TokenType::False},
-    {"nil",     TokenType::Nil},
-    {"class",   TokenType::Class},
-    {"struct",  TokenType::Struct},
-    {"enum",    TokenType::Enum},
-    {"extends", TokenType::Extends},
-    {"self",    TokenType::Self},
-    {"super",   TokenType::Super},
-    {"switch",  TokenType::Switch},
-    {"case",    TokenType::Case},
-    {"default", TokenType::Default},
-    {"import",  TokenType::Import},
-    {"from",    TokenType::From},
-    {"thread",  TokenType::Thread},
-    {"channel", TokenType::Channel},
-};
-
-Lexer::Lexer(std::string source)
-    : m_source(std::move(source))  // move 避免拷贝
-    , m_pos(0)
-    , m_line(1)
-    , m_column(1)
-{}
-
-// ────────────────────────────────
-// 辅助函数
-// ────────────────────────────────
-
-char Lexer::current() const {
-    if (is_at_end()) return '\0';
-    return m_source[m_pos];
-}
-
-char Lexer::peek(int offset) const {
-    int idx = m_pos + offset;
-    if (idx < 0 || idx >= static_cast<int>(m_source.size())) return '\0';
-    return m_source[idx];
-}
-
-char Lexer::advance() {
-    char c = m_source[m_pos++];
-    if (c == '\n') {
-        m_line++;
-        m_column = 1;
-    } else {
-        m_column++;
-    }
-    return c;
-}
-
-bool Lexer::is_at_end() const {
-    return m_pos >= static_cast<int>(m_source.size());
-}
-
-bool Lexer::match(char expected) {
-    if (is_at_end()) return false;
-    if (m_source[m_pos] != expected) return false;
-    advance();
-    return true;
-}
-
-Token Lexer::make_token(TokenType type, const std::string& value) const {
-    return Token{type, value, m_line, m_column};
-}
-
-// ────────────────────────────────
-// 跳过空白和注释
-// ────────────────────────────────
-
-void Lexer::skip_whitespace_and_comments() {
-    while (!is_at_end()) {
-        char c = current();
-
-        // 跳过空白字符
-        if (c == ' ' || c == '\t' || c == '\r' || c == '\n') {
-            advance();
-            continue;
-        }
-
-        // 跳过单行注释 //
-        if (c == '/' && peek() == '/') {
-            while (!is_at_end() && current() != '\n') {
-                advance();
-            }
-            continue;
-        }
-
-        break;
-    }
-}
-
-// ────────────────────────────────
-// 读取数字
-// ────────────────────────────────
-
-Token Lexer::read_number() {
-    int start_line   = m_line;
-    int start_column = m_column;
-    std::string value;
-
-    while (!is_at_end() && (std::isdigit(current()) || current() == '_')) {
-        if (current() != '_') {   // 下划线只用于分隔，不加入值
-            value += current();
-        }
-        advance();
-    }
-
-    // 小数部分
-    if (current() == '.' && std::isdigit(peek())) {
-        value += '.';
-        advance();
-        while (!is_at_end() && std::isdigit(current())) {
-            value += advance();
-        }
-    }
-
-    return Token{TokenType::Number, value, start_line, start_column};
-}
-
-// ────────────────────────────────
-// 读取字符串
-// ────────────────────────────────
-
-Token Lexer::read_string() {
-    int start_line   = m_line;
-    int start_column = m_column;
-
-    advance();  // 跳过开头的 "
-
-    std::string value;
-    while (!is_at_end() && current() != '"') {
-        if (current() == '\\') {
-            advance();  // 跳过反斜杠
-            switch (current()) {
-                case 'n':  value += '\n'; break;
-                case 't':  value += '\t'; break;
-                case '"':  value += '"';  break;
-                case '\\': value += '\\'; break;
-                default:
-                    value += '\\';
-                    value += current();
-            }
-        } else {
-            value += current();
-        }
-        advance();
-    }
-
-    if (is_at_end()) {
-        // 字符串没有闭合
-        throw std::runtime_error(
-            "🌮 line " + std::to_string(start_line) +
-            ": Unterminated string. Did you forget the closing \"?"
-        );
-    }
-
-    advance();  // 跳过结尾的 "
-    return Token{TokenType::String, value, start_line, start_column};
-}
-
-// ────────────────────────────────
-// 读取标识符或关键字
-// ────────────────────────────────
-
-Token Lexer::read_identifier_or_keyword() {
-    int start_line   = m_line;
-    int start_column = m_column;
-    std::string value;
-
-    while (!is_at_end() && (std::isalnum(current()) || current() == '_')) {
-        value += advance();
-    }
-
-    // 查关键字表，不在就是标识符
-    auto it = KEYWORDS.find(value);
-    TokenType type = (it != KEYWORDS.end()) ? it->second : TokenType::Identifier;
-
-    return Token{type, value, start_line, start_column};
-}
-
-// ────────────────────────────────
-// 读取 🌮 彩蛋
-// ────────────────────────────────
-
-Token Lexer::read_taco_emoji() {
-    // 🌮 是 UTF-8 四字节序列：0xF0 0x9F 0x8C 0xAE
-    // 调用时已经确认第一个字节是 0xF0，这里消费剩余三个字节
-    int start_line   = m_line;
-    int start_column = m_column;
-
-    std::string value;
-    value += advance();  // 0xF0
-    value += advance();  // 0x9F
-    value += advance();  // 0x8C
-    value += advance();  // 0xAE
-
-    return Token{TokenType::Taco, value, start_line, start_column};
-}
-
-// ────────────────────────────────
-// 读取下一个 Token
-// ────────────────────────────────
-
-Token Lexer::next_token() {
-    skip_whitespace_and_comments();
-
-    if (is_at_end()) {
-        return make_token(TokenType::EndOfFile, "");
-    }
-
-    int start_line   = m_line;
-    int start_column = m_column;
-    char c = current();
-
-    // 数字
-    if (std::isdigit(c)) {
-        return read_number();
-    }
-
-    // 字符串
-    if (c == '"') {
-        return read_string();
-    }
-
-    // 标识符或关键字
-    if (std::isalpha(c) || c == '_') {
-        return read_identifier_or_keyword();
-    }
-
-    // 🌮 彩蛋（UTF-8 四字节，第一个字节是 0xF0）
-    if (static_cast<unsigned char>(c) == 0xF0) {
-        // 检查接下来三个字节是否匹配 🌮
-        if (static_cast<unsigned char>(peek(1)) == 0x9F &&
-            static_cast<unsigned char>(peek(2)) == 0x8C &&
-            static_cast<unsigned char>(peek(3)) == 0xAE) {
-            return read_taco_emoji();
-        }
-    }
-
-    // 消费当前字符，处理单字符和双字符运算符
-    advance();
-
-    switch (c) {
-        case '+': return Token{TokenType::Plus,         "+", start_line, start_column};
-        case '-': return Token{TokenType::Minus,        "-", start_line, start_column};
-        case '*': return Token{TokenType::Star,         "*", start_line, start_column};
-        case '/': return Token{TokenType::Slash,        "/", start_line, start_column};
-        case '%': return Token{TokenType::Percent,      "%", start_line, start_column};
-        case '^': return Token{TokenType::Caret,        "^", start_line, start_column};
-        case '?': return Token{TokenType::Question,     "?", start_line, start_column};
-        case ':': return Token{TokenType::Colon,        ":", start_line, start_column};
-        case ';': return Token{TokenType::Semicolon,    ";", start_line, start_column};
-        case ',': return Token{TokenType::Comma,        ",", start_line, start_column};
-        case '(': return Token{TokenType::LeftParen,    "(", start_line, start_column};
-        case ')': return Token{TokenType::RightParen,   ")", start_line, start_column};
-        case '{': return Token{TokenType::LeftBrace,    "{", start_line, start_column};
-        case '}': return Token{TokenType::RightBrace,   "}", start_line, start_column};
-        case '[': return Token{TokenType::LeftBracket,  "[", start_line, start_column};
-        case ']': return Token{TokenType::RightBracket, "]", start_line, start_column};
-
-        case '!':
-            if (match('=')) return Token{TokenType::NotEqual,     "!=", start_line, start_column};
-            return Token{TokenType::Not, "!", start_line, start_column};
-
-        case '=':
-            if (match('=')) return Token{TokenType::Equal,  "==", start_line, start_column};
-            return Token{TokenType::Assign, "=", start_line, start_column};
-
-        case '<':
-            if (match('=')) return Token{TokenType::LessEqual,    "<=", start_line, start_column};
-            return Token{TokenType::Less, "<", start_line, start_column};
-
-        case '>':
-            if (match('=')) return Token{TokenType::GreaterEqual, ">=", start_line, start_column};
-            return Token{TokenType::Greater, ">", start_line, start_column};
-
-        case '&':
-            if (match('&')) return Token{TokenType::And, "&&", start_line, start_column};
-            break;
-
-        case '|':
-            if (match('>')) return Token{TokenType::PipeArrow, "|>", start_line, start_column};
-            break;
-
-        case '.':
-            if (current() == '.' && peek() == '.') {
-                advance(); advance();
-                return Token{TokenType::Ellipsis, "...", start_line, start_column};
-            }
-            return Token{TokenType::Dot, ".", start_line, start_column};
-    }
-
-    // 遇到无法识别的字符，报错
-    throw std::runtime_error(
-        "🌮 line " + std::to_string(start_line) +
-        ": Unexpected character '" + c + "'."
-    );
-}
-
-// ────────────────────────────────
-// 核心接口
-// ────────────────────────────────
-
-std::vector<Token> Lexer::tokenize() {
-    std::vector<Token> tokens;
-
-    while (true) {
-        Token t = next_token();
-        tokens.push_back(t);
-        if (t.type == TokenType::EndOfFile) break;
-    }
-
-    return tokens;
-}
-```
-
----
-
-## 6.4 测试：把 `var x = 10;` 切成 Token 列表
-
-### main.cpp
-
-```cpp
-#include <iostream>
-#include "lexer.h"
-#include "token.h"
-
-int main() {
-    std::string source = R"(
-var x = 10 + 20;
-var name = "Miguel";
-var flag = true;
-
-func greet(name) {
-    print("Hola, " + name + "!");
-}
-)";
-
-    Lexer lexer(source);
-
-    std::vector<Token> tokens;
-    try {
-        tokens = lexer.tokenize();
-    } catch (const std::exception& e) {
-        std::cerr << e.what() << "\n";
-        return 1;
-    }
-
-    // 打印每个 Token
-    for (const auto& token : tokens) {
-        std::cout
-            << "[" << token_type_to_string(token.type) << "] "
-            << "\"" << token.value << "\""
-            << " (line " << token.line << ")\n";
-    }
-
-    return 0;
-}
-```
-
-### 更新 CMakeLists.txt
-
-```cmake
-cmake_minimum_required(VERSION 3.14)
-project(taco VERSION 0.1.0 LANGUAGES CXX)
-
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(BUILD_SHARED_LIBS OFF)
-
-add_executable(taco
-    src/main.cpp
-    src/token.cpp
-    src/lexer.cpp
-)
-
-target_include_directories(taco PRIVATE src)
-```
-
-### 编译运行
-
-```bash
-cmake -B build
-cmake --build build
-./build/taco
-```
-
-### 输出
-
-```
-[VAR] "var" (line 2)
-[IDENTIFIER] "x" (line 2)
-[ASSIGN] "=" (line 2)
-[NUMBER] "10" (line 2)
-[PLUS] "+" (line 2)
-[NUMBER] "20" (line 2)
-[SEMICOLON] ";" (line 2)
-[VAR] "var" (line 3)
-[IDENTIFIER] "name" (line 3)
-[ASSIGN] "=" (line 3)
-[STRING] "Miguel" (line 3)
-[SEMICOLON] ";" (line 3)
-[VAR] "var" (line 4)
-[IDENTIFIER] "flag" (line 4)
-[ASSIGN] "=" (line 4)
-[TRUE] "true" (line 4)
-[SEMICOLON] ";" (line 4)
-[FUNC] "func" (line 6)
-[IDENTIFIER] "greet" (line 6)
-[LEFT_PAREN] "(" (line 6)
-[IDENTIFIER] "name" (line 6)
-[RIGHT_PAREN] ")" (line 6)
-[LEFT_BRACE] "{" (line 6)
-[IDENTIFIER] "print" (line 7)
-[LEFT_PAREN] "(" (line 7)
-[STRING] "Hola, " (line 7)
-[PLUS] "+" (line 7)
-[IDENTIFIER] "name" (line 7)
-[PLUS] "+" (line 7)
-[STRING] "!" (line 7)
-[RIGHT_PAREN] ")" (line 7)
-[SEMICOLON] ";" (line 7)
-[RIGHT_BRACE] "}" (line 8)
-[EOF] "" (line 9)
-```
-
-词法分析器正确地把源代码切成了 Token 列表。关键字 `var`、`func`、`true` 被识别为对应的类型，而不是标识符。字符串的内容（`"Miguel"`）去掉了引号，只保留内容本身。
-
----
-
-## 6.5 这个版本的局限性
-
-v0 能正确识别 Token，但有几个明显的局限性：
-
-**不支持字符串插值**
-
-```taco
-var greeting = "Hola, {name}!";
-```
-
-`"Hola, {name}!"` 现在被当成一个普通字符串，不会把 `{name}` 识别成插值表达式。字符串插值需要在读取字符串时，把 `{...}` 里的内容单独切出来，作为一个表达式处理。这需要解析器的配合，v1 再处理。
-
-**没有行列号精确追踪**
-
-当前的行号追踪是粗糙的——只在遇到 `\n` 时更新行号。列号的追踪也不够准确。v1 引入 AST 之后，会用行列号来生成精确的错误信息。
-
-**没有从文件读取**
-
-现在源代码是硬编码在 `main.cpp` 里的字符串。下一步要从 `.taco` 文件读取，并处理命令行参数。
-
-**没有彩蛋逻辑**
-
-🌮 Token 现在只是被识别出来，但没有任何特殊行为。彩蛋逻辑（Magic 8 Ball、魔法海螺等）会在 v6 的 REPL 里实现——在那之前，🌮 只是一个普通的 Token。
+下一章先系统讲 `class` 的基础语法，讲完之后会立刻回到这里，把 `Lexer` 实现出来，完成 v0 的最后一步。
 
 ---
 
 ## 小结
 
-v0 完成了解释器的第一层：词法分析器。
+这一章定义了 Taco 词法分析的基本数据结构。
 
-**Token** 是词法分析的输出单元，包含类型和原始文本。`enum class` 比普通 `enum` 更安全，是定义 TokenType 的正确方式。
+**Token** 是词法分析的输出单元，包含类型和原始文本，用 `struct` 定义——它只是一捆数据，不需要复杂行为，`struct` 足够。
 
-**Lexer** 的核心逻辑是 `next_token()`：跳过空白和注释，然后根据当前字符决定读哪种 Token。关键字通过查表（`unordered_map`）来识别，避免了一大堆 `if/else`。
+**TokenType** 用 `enum class` 定义。比起普通 `enum`，`enum class` 不会隐式转换成 `int`，不同枚举值之间也不会互相误比较，更安全。
 
-**错误处理** 现在很简单：遇到无法识别的字符就抛出异常，打印带行号的错误信息。这符合 Taco 的设计——出错直接崩溃，信息要清晰。
-
----
-
-下一章开始进入第二部分：类与对象。学完类和继承之后，第十一章会用这些知识构建 AST，并实现语法分析器（v1）。
+接下来要做的，是把这些 Token 真正"扫描"出来——这需要学完类的基础，下一章见。
