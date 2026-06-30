@@ -58,6 +58,41 @@ std::cout << c.get();  // 2
 
 这里的关键变化是， `increment()` 这个函数现在"长在" `Counter` 里面，调用时不用再手动传 `Counter*` 进去—— `m_count++` 直接就能访问到当前这个对象的成员。这背后其实有一个隐藏的参数，叫 `this`，下面会讲到。
 
+### 成员变量
+
+成员变量（member variable）是类的数据部分，描述对象的状态：
+
+```cpp
+class Lexer {
+    std::string m_source;  // 源代码
+    int         m_pos;     // 当前位置
+    int         m_line;    // 当前行号
+};
+```
+
+命名约定：很多 C++ 项目用 `m_` 前缀表示成员变量（member），区别于局部变量和参数。这不是语言要求，但是一个有用的习惯——读代码时一眼就能看出哪些是成员变量。
+
+### 成员函数
+
+成员函数（member function）是类的行为部分，定义对象能做什么：
+
+```cpp
+class Lexer {
+public:
+    // 成员函数：可以访问 m_source、m_pos 等成员变量
+    char current() const {
+        if (is_at_end()) return '\0';
+        return m_source[m_pos];
+    }
+
+    bool is_at_end() const {
+        return m_pos >= static_cast<int>(m_source.size());
+    }
+};
+```
+
+成员函数可以直接访问同一个类的成员变量，不需要传参数。这就是"封装"的核心——数据和操作数据的函数绑定在一起。
+
 ### 访问控制：`public` / `private` / `protected`
 
 ```cpp
@@ -83,7 +118,7 @@ acc.m_balance += 100; // 编译错误！m_balance 是 private
 
 `protected` 留到讲继承时才有意义（子类能访问父类的 `protected` 成员，外部不能），这里先知道有这个第三种权限即可。
 
-### 声明和实现分开写
+### 在类外定义成员函数
 
 类内部直接写函数体（像上面 `increment`）叫"内联定义"。更常见、更工程化的做法是类里只写声明，函数体放到类外面，用 `类名::函数名` 表明归属：
 
@@ -133,6 +168,23 @@ c.increment().increment().increment();  // 链式调用，c.count 变成 3
 `m_count++` 其实是 `this->m_count++` 的省略写法。
 
 平时不需要显式写 `this`，但想返回对象自身（实现链式调用）或者在成员函数里区分同名的参数和成员变量时，必须显式用 `*this` 或 `this->`。
+
+> `Tips`:
+> 成员函数在底层其实就是一个普通函数，只不过编译器帮你把"调用这个函数的对象"作为第一个参数（`this`）传进去。这就是为什么 Python 里需要显式写 `self`，而 C++ 里 `this` 是隐式的。看下面的代码对比：
+
+```python
+# Python：self 是显式参数
+def to_string(self):
+    return self.value
+```
+
+```cpp
+// C++：this 是隐式指针
+std::string to_string() const {
+    return value;  // 等价于 this->value
+}
+```
+
 
 ### 构造函数：对象怎么诞生
 
@@ -590,9 +642,31 @@ int Person::s_count = 0;
 
 这一个类涵盖了：访问控制（`private` 数据 + `public` 接口）、构造函数（带初始化列表和 `explicit`）、析构函数、普通成员函数、`const` 成员函数、`static` 成员变量和成员函数。这基本就是单个类能用到的全部基础工具了——拷贝构造/拷贝赋值（对象被复制时发生什么）、运算符重载、继承和虚函数，是在此之上的进阶话题，分别属于不同的主题，需要单独展开讲。
 
+### `struct` 和 `class` 的区别
+
+C++ 里 `struct` 和 `class` 几乎完全相同，只有一个区别：`struct` 的成员默认是 `public`，`class` 的成员默认是 `private`。
+
+```cpp
+struct Point {
+    double x;  // 默认 public
+    double y;  // 默认 public
+};
+
+class Token {
+    // 这里是 private！
+    std::string value;
+public:
+    // 这里才是 public
+    std::string get_value() const { return value; }
+};
+```
+
+惯例上，`struct` 用于简单的数据容器（不需要封装），`class` 用于有复杂行为的对象（需要封装）。在 Taco 项目里，`Token` 用 `struct`（只是数据），`Lexer` 用 `class`（有复杂的内部逻辑）。
+
 ---
 
-## More About `static` 与 单例
+
+## 7.2 More About `static` 与 单例
 
 前面讲的 `static` 都是"类的 `static` 成员"这一种用法，但 `static` 这个关键字在 C++ 里其实还有别的含义，单例模式里用到的正是另外一种——局部静态变量（local static variable）。它和在 `C` 中的含义是一样的。
 
@@ -717,229 +791,7 @@ static Logger& get_instance() {
 
 >补充一句，与C一样，`static` 在 C++ 里其实还有有一种用法：写在全局作用域的变量或函数前面（比如 `static int x = 0;` 写在文件最外层，不在任何类或函数里），作用是把这个变量或函数的链接属性限制成"内部链接"（internal linkage），意思是它只在当前这一个源文件里可见，不会被其他 `.cpp` 文件看到，用来避免不同源文件之间因为重名而冲突。
 
-## 7.2 成员变量与成员函数
-
-### 成员变量
-
-成员变量（member variable）是类的数据部分，描述对象的状态：
-
-```cpp
-class Lexer {
-    std::string m_source;  // 源代码
-    int         m_pos;     // 当前位置
-    int         m_line;    // 当前行号
-};
-```
-
-命名约定：很多 C++ 项目用 `m_` 前缀表示成员变量（member），区别于局部变量和参数。这不是语言要求，但是一个有用的习惯——读代码时一眼就能看出哪些是成员变量。
-
-成员变量可以在声明时给默认值（C++11 起）：
-
-```cpp
-class Lexer {
-    std::string m_source;
-    int m_pos    = 0;     // 默认值
-    int m_line   = 1;     // 默认值
-    int m_column = 1;     // 默认值
-};
-```
-
----
-
-### 成员函数
-
-成员函数（member function）是类的行为部分，定义对象能做什么：
-
-```cpp
-class Lexer {
-public:
-    // 成员函数：可以访问 m_source、m_pos 等成员变量
-    char current() const {
-        if (is_at_end()) return '\0';
-        return m_source[m_pos];
-    }
-
-    bool is_at_end() const {
-        return m_pos >= static_cast<int>(m_source.size());
-    }
-};
-```
-
-成员函数可以直接访问同一个类的成员变量，不需要传参数。这就是"封装"的核心——数据和操作数据的函数绑定在一起。
-
-**在类外定义成员函数**
-
-成员函数可以在类定义里声明，在类外实现：
-
-```cpp
-// lexer.h：只声明
-class Lexer {
-public:
-    char current() const;
-    bool is_at_end() const;
-private:
-    std::string m_source;
-    int m_pos = 0;
-};
-
-// lexer.cpp：实现，用 Lexer:: 前缀表明属于 Lexer 类
-char Lexer::current() const {
-    if (is_at_end()) return '\0';
-    return m_source[m_pos];
-}
-
-bool Lexer::is_at_end() const {
-    return m_pos >= static_cast<int>(m_source.size());
-}
-```
-
-这是大型项目里的标准做法：头文件只放接口（声明），源文件放实现。
-
----
-
-## 7.3 访问控制：public、private、protected
-
-C++ 用三个关键字控制成员的访问权限：
-
-- `public`：任何地方都可以访问
-- `private`：只有类自己的成员函数可以访问
-- `protected`：类自己和子类可以访问（第十二章讲继承时再展开）
-
-```cpp
-class BankAccount {
-public:
-    // 公开接口：外部可以调用
-    void deposit(double amount) {
-        if (amount > 0) m_balance += amount;
-    }
-
-    double get_balance() const {
-        return m_balance;
-    }
-
-private:
-    // 私有数据：外部无法直接访问和修改
-    double m_balance = 0.0;
-    std::string m_owner;
-};
-
-BankAccount account;
-account.deposit(100.0);          // 可以，deposit 是 public
-double b = account.get_balance(); // 可以，get_balance 是 public
-account.m_balance = 9999.0;      // 错误！m_balance 是 private
-```
-
-**为什么要 private？**
-
-把数据设为 private，强迫外部代码通过公开接口操作对象，而不是直接修改数据。这样有几个好处：
-
-- 可以在接口里做检查（`if (amount > 0)`），防止非法操作
-- 内部实现可以改变，只要接口不变，外部代码不需要修改
-- 读代码时，public 部分就是类的"说明书"，private 是实现细节
-
-**struct 和 class 的区别**
-
-C++ 里 `struct` 和 `class` 几乎完全相同，只有一个区别：`struct` 的成员默认是 `public`，`class` 的成员默认是 `private`。
-
-```cpp
-struct Point {
-    double x;  // 默认 public
-    double y;  // 默认 public
-};
-
-class Token {
-    // 这里是 private！
-    std::string value;
-public:
-    // 这里才是 public
-    std::string get_value() const { return value; }
-};
-```
-
-惯例上，`struct` 用于简单的数据容器（不需要封装），`class` 用于有复杂行为的对象（需要封装）。在 Taco 项目里，`Token` 用 `struct`（只是数据），`Lexer` 用 `class`（有复杂的内部逻辑）。
-
----
-
-## 7.4 this 指针
-
-在成员函数里，有一个隐式的指针叫 `this`，指向调用这个函数的对象本身：
-
-```cpp
-class Counter {
-public:
-    void increment() {
-        this->count++;  // 等价于 count++
-    }
-
-    // 返回对象自身的引用，可以链式调用
-    Counter& add(int n) {
-        this->count += n;
-        return *this;  // 解引用 this，返回对象本身
-    }
-
-    int get() const {
-        return this->count;  // 等价于 count
-    }
-
-private:
-    int count = 0;
-};
-
-Counter c;
-c.add(5).add(3).add(2);  // 链式调用
-std::cout << c.get();    // 10
-```
-
-大多数情况下不需要显式写 `this->`，编译器知道成员函数里的 `count` 就是 `this->count`。但有两种情况必须用 `this`：
-
-**情况一：参数名和成员变量同名**
-
-```cpp
-class Token {
-public:
-    Token(std::string value) {
-        this->value = value;  // this->value 是成员变量，value 是参数
-    }
-private:
-    std::string value;
-};
-```
-
-不过更好的做法是用初始化列表（下一章讲），或者给成员变量加 `m_` 前缀来避免歧义。
-
-**情况二：返回对象自身**
-
-```cpp
-Counter& add(int n) {
-    count += n;
-    return *this;  // 必须用 this 才能返回对象自身的引用
-}
-```
-
----
-
-### Taco 里的应用
-
-在 Taco 项目里，`Lexer` 类用 `this` 的地方主要是构造函数。当前版本的 Lexer 用了成员变量初始化列表（下一章详细讲），所以 `this` 用得不多。但理解 `this` 的存在，有助于理解成员函数和普通函数的本质区别：
-
-成员函数在底层其实就是一个普通函数，只不过编译器帮你把"调用这个函数的对象"作为第一个参数（`this`）传进去。这就是为什么 Python 里需要显式写 `self`，而 C++ 里 `this` 是隐式的。
-
-```python
-# Python：self 是显式参数
-def to_string(self):
-    return self.value
-```
-
-```cpp
-// C++：this 是隐式指针
-std::string to_string() const {
-    return value;  // 等价于 this->value
-}
-```
-
----
-
-## 7.5 回到项目：用 class 实现 Lexer
+## 7.3 回到项目：用 class 实现 Lexer
 
 第六章定义了 `Token`，但只完成了一半：还需要一个东西，能读入源代码字符串，逐字符扫描，把它切成 Token 列表。这就是 `Lexer`。
 
@@ -1339,7 +1191,7 @@ std::vector<Token> Lexer::tokenize() {
 
 ---
 
-## 7.6 测试：把 `var x = 10;` 切成 Token 列表
+## 7.4 测试：把 `var x = 10;` 切成 Token 列表
 
 ### main.cpp
 
@@ -1451,7 +1303,7 @@ cmake --build build
 
 ---
 
-## 7.7 这个版本的局限性
+## 7.5 这个版本的局限性
 
 v0 能正确识别 Token，但有几个明显的局限性：
 
