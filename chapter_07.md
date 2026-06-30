@@ -2,78 +2,587 @@
 
 ---
 
-第一部分讲的是 C++ 的"升级版 C"——那些让 C 写起来更舒服的特性。从这一章开始进入第二部分：类与对象。
+从这一章开始进入第二部分：类与对象。
 
 类是 C++ 最核心的特性之一，也是和 C 差距最大的地方。Python 里已经有类的概念，所以这里不从零解释"什么是封装"，而是直接对比：C++ 的类和 Python 的类有什么相同，有什么不同，为什么会有这些不同。
 
 ---
+## 7.1 `class` 入门
 
-## 7.1 从 Python 的类到 C++ 的类：对比切入
+ `class` 本质上是在解决一个问题：当数据和操作这些数据的函数关系紧密的时候，把它们硬拆开管理很别扭。从这个问题出发，一步步建立完整的概念。
+ 
+### 没有 `class` 之前的世界
 
-先来看同一个概念在两种语言里的写法。
-
-**Python 版本**：
-
-```python
-class Token:
-    def __init__(self, type, value):
-        self.type = type
-        self.value = value
-
-    def to_string(self):
-        return f"[{self.type}] \"{self.value}\""
-
-t = Token("NUMBER", "42")
-print(t.to_string())  # [NUMBER] "42"
-```
-
-**C++ 版本**：
+假设要表示一个"计数器"，纯 C 风格的写法是数据和函数分开：
 
 ```cpp
-#include <string>
-#include <iostream>
-
-class Token {
-public:
-    std::string type;
-    std::string value;
-
-    Token(std::string type, std::string value)
-        : type(std::move(type)), value(std::move(value))
-    {}
-
-    std::string to_string() const {
-        return "[" + type + "] \"" + value + "\"";
-    }
+struct Counter {
+    int count;
 };
 
-int main() {
-    Token t("NUMBER", "42");
-    std::cout << t.to_string() << "\n";  // [NUMBER] "42"
+void counter_increment(Counter* c) {
+    c->count++;
+}
+
+int counter_get(const Counter* c) {
+    return c->count;
 }
 ```
 
-表面上很相似：都有数据成员、构造函数、成员函数。但有几个关键区别：
+我们会发现这样的写法很松散。函数 `counter_increment` 和 结构体 `Counter` 之间唯一的联系是程序员脑子里的约定，编译器不知道这个函数"属于"这个结构体。而且 `count` 完全暴露在外，任何代码都能直接改 `c.count = -999`，没有任何约束。
 
-**区别一：必须声明类型**
+### 解决这种问题的方法是，`class` 把函数"绑"进数据里
 
-Python 里 `self.type = type` 就直接创建了成员变量，类型是运行时决定的。C++ 里必须在类定义里声明每个成员变量的类型：`std::string type;`。
+```cpp
+class Counter {
+public:
+    void increment() {
+        m_count++;
+    }
+    int get() const {
+        return m_count;
+    }
+private:
+    int m_count = 0;
+};
+```
 
-**区别二：访问控制**
+用起来是这样：
 
-C++ 有 `public`、`private`、`protected` 关键字，明确控制哪些东西外部可以访问。Python 里只有约定（以 `_` 开头表示"私有"），没有强制性的访问控制。
+```cpp
+Counter c;
+c.increment();
+c.increment();
+std::cout << c.get();  // 2
+```
 
-**区别三：构造函数的写法**
+这里的关键变化是， `increment()` 这个函数现在"长在" `Counter` 里面，调用时不用再手动传 `Counter*` 进去—— `m_count++` 直接就能访问到当前这个对象的成员。这背后其实有一个隐藏的参数，叫 `this`，下面会讲到。
 
-Python 的构造函数叫 `__init__`，C++ 的构造函数和类同名（`Token`）。C++ 还有初始化列表（`: type(...), value(...)`），这是 C++ 特有的语法，第八章会详细讲。
+### 访问控制：`public` / `private` / `protected`
 
-**区别四：`const` 成员函数**
+```cpp
+class BankAccount {
+public:
+    void deposit(double amount) {
+        m_balance += amount;
+    }
+private:
+    double m_balance = 0;
+};
 
-C++ 的 `to_string()` 后面有一个 `const`，表示这个函数不会修改对象的状态。Python 没有这个概念——任何函数都可以修改 `self`。
+BankAccount acc;
+acc.deposit(100);     // 可以，deposit 是 public
+acc.m_balance += 100; // 编译错误！m_balance 是 private
+```
 
-**区别五：对象的创建方式**
+`public` 顾名思义，表示的是可以供外部调用，比如上面例子中的 `deposit()` 函数。相反的， `private` 的部分则只能在 `class` 内部来调用，比如 `m_balance` ，如果在 `class` 外调用 `acc.m_balance++;` 的话，会报错。
 
-Python 里 `t = Token("NUMBER", "42")` 返回的是一个对象引用，对象本身在堆上。C++ 里 `Token t("NUMBER", "42")` 默认在栈上创建对象，`Token* t = new Token("NUMBER", "42")` 才是在堆上。这个区别非常重要，第十五章讲智能指针时会深入讨论。
+为什么要把数据藏起来（`private`）？因为一旦数据可以被外部随便改，类自己就没法保证任何"不变量"。比如如果允许外部直接写 `m_balance = -100`，账户余额就可能变成负数，而这种校验逻辑本该写在 `deposit` / `withdraw` 里。`private` 强迫所有修改都必须经过类自己提供的接口，逻辑才有地方可控。
+
+`class` 默认所有成员是 `private`，所以这里显式写了 `public:` 把 `increment` 和 `get` 暴露出去，`m_count` 留在 `private` 里不让外部直接碰。如果换成 `struct`，唯一的区别是默认访问权限变成 `public`（也就是说 `struct` 和 `class` 在功能上完全等价，只是 `struct` 默认是 `public` 的），习惯上数据为主、没什么行为的用 `struct`，需要封装的用 `class`。
+
+`protected` 留到讲继承时才有意义（子类能访问父类的 `protected` 成员，外部不能），这里先知道有这个第三种权限即可。
+
+### 声明和实现分开写
+
+类内部直接写函数体（像上面 `increment`）叫"内联定义"。更常见、更工程化的做法是类里只写声明，函数体放到类外面，用 `类名::函数名` 表明归属：
+
+```cpp
+// 头文件 counter.h
+class Counter {
+public:
+    void increment();
+    int get() const;
+private:
+    int m_count = 0;
+};
+
+// 源文件 counter.cpp
+void Counter::increment() {
+    m_count++;
+}
+
+int Counter::get() const {
+    return m_count;
+}
+```
+
+`::` 叫作用域解析运算符，`Counter::increment` 的意思是"这个 `increment` 是 `Counter` 类的，不是某个全局函数"。头文件放接口（给别人看的"说明书"），源文件放实现（具体怎么干的），这是大型 C++ 项目的标准组织方式，编译时也能各自独立编译，加快构建速度。
+
+### `this` 指针
+
+每个非静态成员函数被调用时，编译器偷偷传进去一个指针，**指向调用它的那个对象实例**（也就是用这个类实例化出来的具体对象），这个指针就叫 `this`。看下面的例子：
+
+```cpp
+class Counter {
+public:
+    Counter& increment() {
+        m_count++;
+        return *this;   // 返回当前对象本身，支持链式调用
+    }
+private:
+    int m_count = 0;
+};
+
+Counter c;
+c.increment().increment().increment();  // 链式调用，c.count 变成 3
+```
+
+`this` 等价于 `&c` ，也就是说， `c.increment()` 返回的是 `*&c` ，即， `c` 这个实例。然后再对返回的 `*&c` 调用 `.increment()` ，从而实现链式调用。
+
+`m_count++` 其实是 `this->m_count++` 的省略写法。
+
+平时不需要显式写 `this`，但想返回对象自身（实现链式调用）或者在成员函数里区分同名的参数和成员变量时，必须显式用 `*this` 或 `this->`。
+
+### 构造函数：对象怎么诞生
+
+构造函数是一个和类同名、没有返回类型的特殊函数，对象创建的瞬间自动调用，专门用来做初始化。
+
+```cpp
+class Counter {
+public:
+    Counter(int start) {
+        m_count = start;
+    }
+    int get() const { return m_count; }
+private:
+    int m_count;
+};
+
+Counter c(10);
+std::cout << c.get();  // 10
+```
+
+更地道的写法是用"初始化列表"而不是在函数体里赋值：
+
+```cpp
+Counter(int start) : m_count(start) {}
+```
+
+这是构造函数的"初始化列表"语法，完整名字叫 **成员初始化列表**（member initializer list），专属于构造函数，作用是在构造函数执行函数体之前，直接初始化成员变量。
+
+它的基本语法结构如下：
+
+```cpp
+构造函数名(参数列表) : 成员1(初始值1), 成员2(初始值2), ... {
+    // 函数体
+}
+```
+
+拆开看每个部分：
+
+```cpp
+Counter(int start) : m_count(start) {}
+//  ①        ②     ③      ④       ⑤
+```
+
+- ① 构造函数名，必须和类名完全相同
+- ② 参数列表，跟普通函数的参数列表写法一样
+- ③ 一个冒号 `:`，标志着初始化列表的开始
+- ④ 初始化列表本身，格式是 `成员变量名(用来初始化它的值)`
+- ⑤ 函数体，用花括号包起来，这里是空的，但完全可以写别的逻辑
+
+> `Counter(int start)` 这个就是 `函数名(需要在实例化的时候传入的参数名)` 。
+
+多个成员变量的情况
+
+如果有多个成员变量要初始化，中间用逗号分隔：
+
+```cpp
+class Point {
+public:
+    Point(int x, int y) : m_x(x), m_y(y) {}
+private:
+    int m_x;
+    int m_y;
+};
+```
+
+写法是 `m_x(x), m_y(y)`——每一项都是"成员变量名 + 括号 + 用来初始化它的表达式"，多项之间用逗号隔开，最后跟着函数体 `{}`。
+
+值得注意的是，它的初始化值不一定来自参数，也可以是字面量、表达式，或者干脆不写值用默认构造：
+
+```cpp
+class Example {
+public:
+    Example(int x) 
+        : m_x(x)           // 用参数初始化
+        , m_y(0)           // 用字面量初始化
+        , m_z(x * 2)       // 用表达式初始化
+        , m_name()         // 用默认构造（std::string 默认构造成空字符串）
+    {}
+private:
+    int m_x;
+    int m_y;
+    int m_z;
+    std::string m_name;
+};
+```
+
+如果不写任何构造函数，编译器会偷偷生成一个什么都不做的"默认构造函数"；一旦我们写了任意一个构造函数，这个自动生成的默认构造函数就不再存在，除非我们写的构造函数长这样： `Counter() = default;` ，这个的意思就是让编译器自己去生成那个默认的构造函数。
+
+### `explicit`
+
+`explicit` 是英语单词本身的意思——"明确的、显式的"，作为 C++ 关键字，用来**禁止构造函数被用来做隐式类型转换**，强制要求调用者必须明确地、显式地写出构造调用。
+
+先看没有 explicit 时会发生什么
+
+```cpp
+class Counter {
+public:
+    Counter(int start) : m_count(start) {}   // 没加 explicit
+private:
+    int m_count;
+};
+```
+
+这时候，一个单参数构造函数会让编译器认为"`int` 可以自动变成 `Counter`"，于是允许这样写：
+
+```cpp
+Counter c2 = 10;
+```
+
+注意这行代码字面上看，等号右边是个 `int`（`10`），左边却要一个 `Counter` 类型的变量。按理说类型不匹配应该报错，但编译器在背后偷偷做了一步转换：把 `10` 当成参数，调用了 `Counter(int)` 这个构造函数，生成了一个临时的 `Counter` 对象，再用这个临时对象去初始化 `c2`。这整个过程你完全没有写出来"我要调用构造函数"，是编译器自己悄悄补上的，这就叫**隐式转换**。
+
+同样的事也会发生在函数参数传递时：
+
+```cpp
+void f(Counter c) {}
+
+f(10);   // 10 是 int，f 要的是 Counter，编译器偷偷把 10 转成 Counter 再传进去
+```
+
+隐式转换最大的风险是：**类型不匹配时，编译器不报错，而是悄悄帮你"圆"过去**，这经常会掩盖真正的 bug。举个更危险的例子：
+
+```cpp
+class Counter {
+public:
+    Counter(int start) : m_count(start) {}
+private:
+    int m_count;
+};
+
+void process(Counter c) {
+    // 处理一个计数器
+}
+
+int main() {
+    int user_id = 12345;
+    process(user_id);   // 本意是想传一个 Counter，结果手滑传了个 int
+                          // 编译器不报错！默默把 12345 转成了一个 Counter 对象
+}
+```
+
+这里程序员的本意可能是函数签名写错了，或者调用时传错了变量，是一个明显的逻辑错误。但因为隐式转换的存在，编译器完全不会提醒你，代码照样能编译通过、能跑，错误被悄悄"吃掉"了，只有运行时行为不对劲，才会被发现，排查起来很麻烦。
+
+为了解决这个问题，我们只需要在初始化列表前加上 `explicit` 即可：
+
+```cpp
+class Counter {
+public:
+    explicit Counter(int start) : m_count(start) {}   // 加上 explicit
+private:
+    int m_count;
+};
+```
+
+加了 `explicit` 之后，这个构造函数就**不能再被用来做隐式转换**了：
+
+```cpp
+Counter c1(10);     // 可以——这是直接初始化，明确写出了"我要构造一个 Counter"
+Counter c2 = 10;    // 错误！这是想让编译器隐式转换，被 explicit 挡住了
+```
+
+但如果你**明确地**写出构造调用，依然是可以的：
+
+```cpp
+Counter c2 = Counter(10);          // 可以，这里明确写了 Counter(10)，不是隐式转换
+Counter c3 = static_cast<Counter>(10);  // 可以，static_cast 也是一种"明确表态"
+```
+
+函数参数那边同理：
+
+```cpp
+void f(Counter c) {}
+
+f(10);            // 错误！想让 10 隐式转成 Counter，被挡住
+f(Counter(10));   // 可以，明确写出了构造调用
+```
+
+只有**单参数**构造函数（或者所有参数除第一个外都有默认值，效果上等同于能用一个参数调用的构造函数）才会触发隐式转换问题，因为隐式转换的本质是"用一个值去换出另一个类型"，天然就是单值对单值的转换关系。所以如果构造函数需要两个或更多必填参数，本身就不存在"一个值自动变成这个类型"的歧义，就不需要 `explicit` 了。
+
+```cpp
+class Point {
+public:
+    Point(int x, int y) : m_x(x), m_y(y) {}   // 双参数，本身不会触发隐式转换
+private:
+    int m_x, m_y;
+};
+
+Point p = {1, 2};   // 这是列表初始化，跟 explicit 是另一回事，这里不展开
+```
+
+**什么时候反而不想加 explicit、就是想要这种隐式转换**：最常见的例子是 `std::string` 的构造函数：
+
+```cpp
+void greet(const std::string& name) {
+    std::cout << "Hello, " << name << "\n";
+}
+
+greet("Alice");   // "Alice" 是 const char*，隐式转成了 std::string
+```
+
+如果 `std::string` 的构造函数也被标成 `explicit`，那么每次想用字符串字面量初始化 `std::string`、或者传给接受 `std::string` 的函数，都得手动写 `std::string("Alice")`，会非常繁琐。这种情况下隐式转换是有意为之、提升便利性的，所以标准库特意没给这个构造函数加 `explicit`。所以原则不是"所有单参数构造函数都必须加 explicit"，而是"默认倾向于加，除非你确实希望这种类型转换是丝滑、隐式发生的"。
+
+### 析构函数：对象怎么消亡
+
+```cpp
+class Counter {
+public:
+    Counter() { std::cout << "构造\n"; }
+    ~Counter() { std::cout << "析构\n"; }
+};
+
+{
+    Counter c;   // 打印 "构造"
+}                // 离开作用域，自动打印 "析构"
+```
+
+析构函数名字是 `~类名`，没有参数、没有返回类型，对象生命周期结束时（离开作用域、被 delete、所属容器被清空……）自动调用，专门用来做清理工作，比如释放申请的内存、关闭文件句柄。这正是 `C++` "`RAII`"（资源获取即初始化）这套设计哲学的核心：把资源的生命周期和对象的生命周期绑在一起，对象一创建资源就到位，对象一销毁资源自动释放，不需要手动记得清理，也不会因为忘记清理而泄漏。
+
+### `const` 成员函数
+
+函数名后面的 `const` 是对编译器的承诺："这个函数不会修改对象的状态"。意义在于：一个 `const` 对象（或者通过 `const&` 传进来的对象）只能调用标了 `const` 的成员函数，编译器会在编译期帮你拦住误操作。养成习惯——不修改成员变量的成员函数都加上 `const`，这是 `C++` 里很重要的约定：
+
+```cpp
+class Counter {
+public:
+    int get() const {     // 承诺不修改任何成员变量
+        return m_count;
+    }
+    void increment() {    // 没有 const，会修改成员变量
+        m_count++;
+    }
+private:
+    int m_count = 0;
+};
+
+const Counter c;
+c.get();          // 可以，get 是 const
+c.increment();    // 错误！const 对象不能调用非 const 成员函数
+```
+
+### `static` 成员
+
+先看普通成员变量是什么样的。
+
+```cpp
+class Counter {
+public:
+    Counter(int start) : m_count(start) {}
+private:
+    int m_count;
+};
+
+Counter a(1);
+Counter b(2);
+Counter c(3);
+```
+
+普通成员变量 `m_count`，**每个对象都有自己独立的一份**。`a` 的 `m_count` 是 1，`b` 的 `m_count` 是 2，`c` 的 `m_count` 是 3，三份内存完全独立，互不影响，改 `a.m_count` 不会影响 `b.m_count`。
+
+接下来看加上 `static` 之后会发生什么变化。
+
+```cpp
+class Counter {
+public:
+    Counter() { s_instance_count++; }
+private:
+    static int s_instance_count;
+};
+```
+
+加上 `static` 之后，情况完全不同：**不管创建多少个对象，`s_instance_count` 永远只有一份**，所有对象看到的、改动的，都是同一块内存。可以这样理解：普通成员变量是"每个对象各拿一份"，`static` 成员变量是"这个类的所有对象一起共用一份，谁也不单独拥有"。更准确地说，`static` 成员变量根本不属于任何一个对象，它属于**类本身**，哪怕一个对象都没创建，这个变量也已经存在了。
+
+既然 `static` 成员变量不属于任何对象，它的初始化方式也跟普通成员变量不一样，需要单独再写一行。
+
+```cpp
+class Counter {
+private:
+    static int s_instance_count;   // 这里只是声明，告诉编译器"有这么个东西"
+};
+
+int Counter::s_instance_count = 0;   // 这里才是真正的定义，分配内存、给初始值
+```
+
+普通成员变量的内存，是跟着每个对象一起分配的——创建一个 `Counter` 对象，编译器就在那块内存里顺带留出 `m_count` 的位置。但 `static` 成员变量不属于任何对象，它的内存得**单独**分配，而且只能分配一次（因为全程序只有一份）。类定义本身（写在头文件里的那部分）只是描述"这个类长什么样"，并不会真正分配内存。所以类内的 `static int s_instance_count;` 只是个声明，类似于"提前打个招呼说有这么个变量"，真正在某个地方把内存开辟出来、给上初始值，必须在类外面单独写一行，格式是 `类型 类名::变量名 = 初始值;`，这一行通常放在对应的 `.cpp` 源文件里，确保整个程序只出现一次（否则又会撞上之前讲过的 ODR 单一定义规则）。
+
+> 从 C++17 开始，如果在类内声明时加上 `inline` 关键字（`static inline int s_instance_count = 0;`），就可以直接在类内完成初始化，不需要再去类外写一行了，这是为了解决头文件里类的 static 成员初始化麻烦的问题专门引入的新写法。
+
+定义好之后，用下面的方式访问 `static` 成员变量：
+
+```cpp
+Counter a, b, c;
+std::cout << Counter::get_instance_count();   // 3
+```
+
+因为 `static` 成员变量不属于具体某个对象，所以更地道的访问方式是直接用**类名**加 `::`，不需要先有一个对象：
+
+```cpp
+std::cout << Counter::s_instance_count;   // 如果它是 public 的话，可以这样直接访问
+```
+
+也可以通过某个对象去访问（虽然不那么常见），效果是一样的，因为反正所有对象共享的都是同一份：
+
+```cpp
+std::cout << a.s_instance_count;   // 跟 Counter::s_instance_count 是同一个东西
+```
+
+变量讲完了，再看 `static` 成员函数。
+
+```cpp
+class Counter {
+public:
+    static int get_instance_count() { return s_instance_count; }
+private:
+    static int s_instance_count;
+};
+```
+
+普通成员函数被调用时，前面讲过编译器会偷偷传一个 `this` 指针进去，指向具体是哪个对象在调用。但 `static` 成员函数**没有 `this`**——它压根不需要知道是哪个对象在调用它，因为它本来就不依赖任何具体对象。正因为没有 `this`，所以调用 `static` 成员函数完全不需要先创建对象：
+
+```cpp
+std::cout << Counter::get_instance_count();   // 不需要先有一个 Counter 对象，直接用类名调用
+```
+
+也正因为没有 `this`，`static` 成员函数**只能访问其他的 `static` 成员**（变量或函数），完全不能访问非 `static` 的成员，因为非 `static` 成员必须通过某个具体对象（也就是 `this`）才能找到，而 `static` 函数里根本没有这个东西可用：
+
+```cpp
+class Counter {
+public:
+    static int get_instance_count() { return s_instance_count; }   // 可以，访问的是 static 成员
+    static void bad_example() {
+        m_count++;   // 错误！m_count 是非 static 成员，static 函数里没有 this，不知道该改谁的 m_count
+    }
+private:
+    int m_count = 0;             // 普通成员
+    static int s_instance_count; // static 成员
+};
+```
+
+总结一下：普通成员（变量和函数）描述的是"每一个对象自己的状态和行为"，依赖 `this` 才能知道"是哪个对象"。`static` 成员描述的是"这个类整体共享的状态和行为"，跟具体哪个对象无关，甚至可以在没有任何对象存在时就被使用。这也是为什么 `static` 成员函数没有 `this`——它服务的对象是"类"，不是某个实例。
+
+有一点：局部类不能有 `static` 数据成员。
+
+```cpp
+#include <iostream>
+#include <string>
+
+int main(void) {
+    class Counter {       // 这是一个局部类，定义在函数内部
+    public:
+        Counter() { m_counter++; }
+        static int get_count_value() { return m_counter; }
+    private:
+        static int m_counter;   // 编译错误！局部类不允许有 static 成员变量
+    };
+    int Counter::m_counter = 0;
+}
+```
+
+直接编译会报类似这样的错误：`error: a static data member of name 'm_counter' may not be defined in a local class` 。
+
+原因在于：`static` 成员变量需要在类外单独写一行来定义、分配内存（比如 `int Counter::m_counter = 0;`），这一行本质上是在**全局（或命名空间）作用域**里，给这个变量分配一块独立于任何函数调用、贯穿整个程序生命周期的内存。但局部类本身定义在函数体内部，它的"生存范围"被限制在这个函数作用域里——一个只在函数内部"临时存在"的类型，却要拥有一个全局唯一、跨越整个程序生命周期的静态存储，这两者产生了根本性的冲突，C++ 语言规则直接禁止了这种组合，不允许局部类声明 `static` 数据成员。顺带一提，局部类的 `static` **成员函数**是可以有的，只是 `static` **数据成员**不行，因为**成员函数不需要类似的"类外定义来分配内存"这一步**：
+
+```cpp
+int main(void) {
+    class Counter {
+    public:
+        static void say_hello() {   // 这个没问题，static 成员函数可以
+            std::cout << "hello\n";
+        }
+    };
+    Counter::say_hello();   // 可以正常调用
+}
+```
+
+修正方式很直接，把这个类挪到 `main` 函数外面，变成一个普通的（非局部）类即可。
+
+```cpp
+#include <iostream>
+#include <string>
+
+class Counter {
+public:
+    Counter() { m_counter++; }
+    static int get_count_value() { return m_counter; }
+private:
+    static int m_counter;
+};
+
+int Counter::m_counter = 0;   // 类外定义，这里没问题，因为 Counter 现在是全局作用域的类
+
+int main(void) {
+    Counter a, b, c;
+    std::cout << Counter::get_count_value();   // 3
+}
+```
+
+这样写就完全没问题了——`Counter` 现在是一个普通的、定义在全局作用域的类，`static` 成员变量可以正常在类外定义并拥有全局唯一的存储位置。
+
+最后提一个 `static` 成员常见的实际用途：单例模式，让一个类全局只能存在一个实例。
+
+```cpp
+class Logger {
+public:
+    static Logger& get_instance() {
+        static Logger instance;   // 注意：这里的 static 是另一种用法（局部静态变量），后面可以单独展开讲
+        return instance;
+    }
+private:
+    Logger() {}   // 构造函数设为 private，外部无法直接 new 一个
+};
+
+Logger::get_instance().log("hello");
+```
+
+这种写法依赖的正是 `static` 成员函数不需要对象就能调用的特性，是个常见的实际应用场景，但属于进阶用法，先了解 `static` 的基本概念，这类设计模式之后单独学也来得及。
+
+### 串起来看一个完整的例子
+
+```cpp
+class Person {
+public:
+    explicit Person(std::string name, int age)
+        : m_name(std::move(name))
+        , m_age(age)
+    {
+        s_count++;
+    }
+
+    ~Person() {
+        s_count--;
+    }
+
+    std::string get_name() const { return m_name; }
+    int get_age() const { return m_age; }
+
+    void birthday() {
+        m_age++;
+    }
+
+    static int get_population() { return s_count; }
+
+private:
+    std::string m_name;
+    int m_age;
+    static int s_count;
+};
+
+int Person::s_count = 0;
+```
+
+这一个类涵盖了：访问控制（`private` 数据 + `public` 接口）、构造函数（带初始化列表和 `explicit`）、析构函数、普通成员函数、`const` 成员函数、`static` 成员变量和成员函数。这基本就是单个类能用到的全部基础工具了——拷贝构造/拷贝赋值（对象被复制时发生什么）、运算符重载、继承和虚函数，是在此之上的进阶话题，分别属于不同的主题，需要单独展开讲。
 
 ---
 
