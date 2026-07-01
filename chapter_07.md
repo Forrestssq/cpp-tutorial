@@ -791,7 +791,387 @@ static Logger& get_instance() {
 
 >补充一句，与C一样，`static` 在 C++ 里其实还有有一种用法：写在全局作用域的变量或函数前面（比如 `static int x = 0;` 写在文件最外层，不在任何类或函数里），作用是把这个变量或函数的链接属性限制成"内部链接"（internal linkage），意思是它只在当前这一个源文件里可见，不会被其他 `.cpp` 文件看到，用来避免不同源文件之间因为重名而冲突。
 
-## 7.3 回到项目：用 class 实现 Lexer
+## 7.3 `lexer` 项目 Part 1：大框架
+
+我们回到 `Lexer` 到设计中来吧。下面是作者的得意之作，保证逻辑清晰地从头开始把这个 `lexer` 分词器不跳步地一步一步写出来。
+
+我们先要明确 `Lexer` 需要什么数据。
+
+### 数据
+
+回看一下在 `token.h` 中定义的 `struct` ：
+
+```cpp
+// token.h
+// Token 结构体
+struct Token {
+    TokenType   type;
+    std::string value;   // 原始文本
+    int         line;    // 行号（从 1 开始）
+    int         column;  // 列号（从 1 开始）
+};
+```
+
+还记得我们在分析一段代码（比如 `var x = 10`）的时候，需要把它拆成一个一个的 `Token` 吗（比如 `type: IDENTIFIER, value: "x"` ）这样。为了实现这样的拆分，我们需要 `lexer` ：
+
+1. 给人看的：记录下分析到了哪一个词（需要行号+列号）；
+2. 给程序用的：记录下当前分析到哪个词了（只需一个变量即可）；
+3. 源代码。
+
+> 讲解：
+> 假设我们有下面的代码需要 `lexer` 来分析：
+
+```cpp
+var x = 10;
+var y = 20;
+var z = x + y;
+```
+
+> 上面是人看到的。但是对于程序来说，它看到的是：
+
+```cpp
+var x = 10;\nvar y = 10;\nvar z = x + y;
+```
+
+> 也就是说，程序没有"行号""列号"这两个概念：因为都是字符编码，都是在"一行"里面的。
+> 
+> 行号列号只是在报错的时候给人看的，在程序内部只需要一个 `pos` 记录下当前分析到的位置即可。
+
+所以我们可以写出如下的代码：
+
+```cpp
+// lexer.h
+#include <string>
+
+class Lexer {
+public:
+
+private:
+    std::string m_source; // 用来放源代码的
+    int m_pos;            // 记录程序分析到的位置
+    int m_line;           // 记录行号（给人看）
+    int m_column;         // 记录列号（给人看）
+};
+
+```
+
+然后我们需要让 `Lexer` 接受源代码（显然是 `std::string` 类型）：
+
+```cpp
+// lexer.h
+#include <string>
+
+class Lexer {
+public:
+    Lexer(std::string source) : m_source(source) {}
+private:
+    std::string m_source; // 用来放源代码的
+    int m_pos;            // 记录程序分析到的位置
+    int m_line;           // 记录行号（给人看）
+    int m_column;         // 记录列号（给人看）
+};
+
+```
+
+希望我们就此熟悉了 `class` 的构造函数（constructor）的写法。ps：不要在构造函数后面加 `;` 哦。
+
+不知是否还记得，这样的构造函数是不安全的，因为 `C++` 可能会隐式地进行类型转换，从而产生意外。记得总是在构造函数前面加上 `explicit` 关键字，限定只能通过 `Lexer(源代码)` 这样的方式来实例化。
+
+```cpp
+// lexer.h
+#include <string>
+
+class Lexer {
+public:
+    explicit Lexer(std::string source) : m_source(source) {}
+private:
+    std::string m_source; // 用来放源代码的
+    int m_pos;            // 记录程序分析到的位置
+    int m_line;           // 记录行号（给人看）
+    int m_column;         // 记录列号（给人看）
+};
+```
+
+还没好！我们还需要初始化这三个 `m_` 开头的参数（因为在一开始的时候， `m_pos = 0`， `m_line = 1`， `m_column = 1` 这些是可以确定的，如果对line和column为1不为0感到惊讶的话，请回忆我们人类在数行数的时候是从"第一行"开始数的还是"第零行"开始数的）。
+
+要么在构造函数里面初始化：
+
+```cpp
+// lexer.h
+#include <string>
+
+class Lexer {
+public:
+    explicit Lexer(std::string source) 
+        : m_source(source)
+        , m_pos(0)
+        , m_line(1)
+        , m_column(1)
+    {}
+private:
+    std::string m_source; // 用来放源代码的
+    int m_pos;            // 记录程序分析到的位置
+    int m_line;           // 记录行号（给人看）
+    int m_column;         // 记录列号（给人看）
+};
+
+```
+
+要么在它们各自的后面直接初始化：
+
+```cpp
+// lexer.h
+#include <string>
+
+class Lexer {
+public:
+    explicit Lexer(std::string source) : m_source(source) {}
+private:
+    std::string m_source;     // 用来放源代码的
+    int m_pos = 0;            // 记录程序分析到的位置
+    int m_line = 1;           // 记录行号（给人看）
+    int m_column = 1;         // 记录列号（给人看）
+};
+```
+
+这里更推荐第二种，因为构造函数中最好是初始化传入的值。
+
+### 处理数据
+
+数据定义好了，接着是写处理数据所需要的函数。
+
+我们想要 `Lexer` 实现的是：在实例化的时候，传入 `source_code` （ `std::string` ）。在之后，对这个实例调用一个函数（命名为 `tokenize()` ）的时候，他可以返回一个 `vector` （一个存放 `Token` 的列表） ，里面存放了分析好的信息。如下：
+
+```cpp
+std::string example_code = "var x = 10";
+
+Lexer code1(example_code);
+std::vector<Token> tokens = code1.tokenize()
+```
+
+然后一个一个分行打印出来，结果是这样的（TokenType + code + 行号）：
+
+```bash
+[VAR] "var" (line 1) 
+[IDENTIFIER] "x" (line 1) 
+[ASSIGN] "=" (line 1) 
+[NUMBER] "10" (line 1) 
+[EOF] "" (line 1)
+```
+
+我们先把这个函数放到 `public:` 里面：
+
+```cpp
+class Lexer {
+public:
+	explicit Lexer(std::string source);
+	std::vector<Token> tokenize(); // 返回一个放 Token 的列表
+private:
+	std::string m_source;
+	int m_pos = 0;
+	int m_line = 1;
+	int m_column = 1;
+}
+```
+
+那么我们怎么实现这个函数呢？
+
+首先当然是将 `m_source` 中的源代码的各个 `Token` 拆封后对应成 `TokenType` 。
+
+为了减少翻页的苦痛，下面贴出来部分的 `enum class TokenType` 代码（显然是不完整的）：
+
+```cpp
+// token.h
+
+enum class TokenType {
+    // 字面量
+    Number,       // 42, 3.14, 1_000_000
+    String,       // "hello"
+    True,         // true
+    False,        // false
+    Nil,          // nil
+
+    // 标识符和关键字
+    Identifier,   // x, name, greet
+    Var,          // var
+    Func,         // func
+    If,           // if
+    Elseif,       // elseif
+    Else,         // else
+    
+    EndOfFile,
+ };
+```
+
+源代码有三种情况，一个是**系统保留的关键字**，比如 `var`、`nil`、 `true` 等等。这样关键字的数量很少，我们不妨直接写好对应的关键字表，比如让程序看到 `var` 就对应成  `TokenType` 中的 `Var` ，看到 `func` 就对应成 `Func` 。
+
+二是**用户定义标识符**，比如函数名，变量名。它的数量无限、由用户自由命名，没法预先列举。
+
+三是**运算符和符号**，比如 `=`、`+`、`(`、`;`。这些不是由字母组成的单词，而是固定的符号，直接一对一识别即可（比如看到 `+` 就直接返回 `TokenType::Plus`），不需要经过"查关键字表"这一步。
+
+因此，程序的判断方法是：如果这个 `Token` 不是运算符或者符号的话，那么先假设这个 `Token` 是标识符，然后去关键字表中查。如果没有查到，那么就是标识符；如果查到了，那么将它的类型改为相应的 `TokenType` 关键字。
+
+那么用什么来储存这个一一对应的关键字表呢？我们很容易联想到 `python` 的字典是一个很好的选择。
+
+`C++` 中的字典的用法与 `std::vector<T>` 类似，如下：
+
+```cpp
+#include <unordered_map> // 导入库
+
+std::unordered_map<T, U> KEYWORDS; // 声明。T 和 U 是键值对的类型，其中 `T` 类型是 `key` , `U` 类型是 `value` 。字典的名称一般大写。
+
+KEYWORDS = {
+	{"var", TokenType::Var},  // 键值对用 `{}` 包裹，键值用 `,` 隔开
+	{"func", TokenType::Func},
+	{"for", TokenType::For},
+	// 省略...
+}; //记得在结尾加上分号
+```
+
+有三种调用方法：
+
+1. `find()`
+
+```cpp
+auto it = KEYWORDS.find("var");
+```
+
+`find("var")` 做的事情就是去表里找有没有 key 叫 "var" 的**那一行**。
+
+那么就有两种可能：
+
+找到了：`it` 会指向表里面的那一行（ `{"var", TokenType::var}` ），然后我们可以用 `it->second` 拿到对应的value（即 `TokenType::Var` ）。
+
+注意，`KEYWORDS` 本身是一个 `unordered_map`（哈希表容器），它实现了迭代功能，内部存的是一个个 `pair` 这种 struct。而 `std::pair` 的简化定义如下：
+
+```cpp
+template<typename T1, typename T2>
+struct pair {
+    T1 first;
+    T2 second;
+};
+```
+
+它是一个数组！
+
+所以 `KEYWORDS.find("var")` 返回的 `it` 是一个迭代器，它指向 `KEYWORDS` 这个 `unordered_map` 里的某一个 `pair`。每个 叫做`pair` 的 `struct` 都有 `first`（key）和 `second`（value）两个成员，所以我们可以用 `it->first` 取出 key（`"var"`），用 `it->second` 取出 value（`TokenType::Var`）。
+
+> 迭代器在后面章节会讲，简单说，迭代器就是一个"指向容器中某个元素的东西"。它用起来很像指针，可以用 `->` 访问它指向的内容，因为 `it->second` 等价于 `(*it).second` ，而在第一步 `(*it)` 解引用的时候，就会找到迭代器指向的元素，在这里它指向的是struct，也就是说， `(*it)` 的时候已经是一个 `struct` 了，那么后面对 `struct` 取出成员好理解了。
+
+如果没找到，那么 `it` 就会等于 `KEYWORDS.end()` 。`end()` 是一个特殊的迭代器，指向"末尾之后"这个位置；那个位置没有真实的 `pair`，所以不能对它解引用（`*it` 或 `it->second`），否则是未定义行为。
+
+所以我们使用前**必须先判断** `it != KEYWORDS.end()`，确认没到末尾，然后才能安全地用 `it->second`。这也是为什么下面的 `it != KEYWORDS.end()` 判断永远要写在取值之前。
+
+因此，我们这样用：
+
+```cpp
+auto it = KEYWORDS.find("var");
+TokenType type;
+
+if (it != KEYWORDS.end()) {
+	std::cout << "Find!";
+	type = it->second;
+} else {
+	std::cout << "Not found!";
+	type = TokenType::Identifier; // 如果在 KEYWORDS 的表中没有找到，
+	// 那么它就是 `Token::Identifier` 
+}
+```
+
+我们也可以用三元运算符来简化上面的程序：
+
+```cpp
+auto it = KEYWORDS.find("var");
+
+TokenType type = (it != KEYWORDS.end()) ? it->second : TokenType::Identifier;
+```
+
+2. `[]` 运算符直接取值
+
+```cpp
+TokenType type = KEYWORDS["var"];
+```
+
+注意，如果 `KEYWORDS` 是 `const` 的（我们的场景就是），**不能用 `[]`**！因为 `[]` 在 key 不存在时会自动插入一个新的键值对，这个"插入"操作违反了 `const` 的承诺，编译器会直接报错。所以在 Lexer 里必须用 `find()`，不能用 `[]`。
+
+3. `count()` 只想知道存不存在
+
+```cpp
+if (KEYWORDS.count("var") > 0) {
+	// 存在，然后处理
+}
+```
+
+`count()` 对 `unordered_map` 来说只会返回 0 或 1（因为 key 不会重复），但它拿不到对应的 value，只能配合 `[]` 或 `find()` 再查一次，所以在 Lexer 场景里不如直接用 `find()` 一步到位。
+
+---
+
+好的回到 `Lexer` 来。我们需要在 `class` 中放一个字典，这个字典应该是 `private` 的（不需要对外开放），并且，所有的实例都用共用这一个字典。那么在字典前面加上 `static` 关键字吧，让所有的成员共用一份。
+
+另外，这个字典不应该被修改，所以加上 `const` 关键字。
+
+因此，我们在 `lexer.h` 中就应该这样声明（还记得 `static` 的部分需要放到 `class` 外面去定义吗）：
+
+```cpp
+#include "token.h"
+#include <string>
+#include <unordered_map>
+
+class Lexer {
+public:
+	explicit Lexer(std::string source) : m_source(source) {}
+private:
+	static const std::unordered_map<std::string, TokenType> KEYWORDS;
+	std::string m_source;
+	int m_pos = 0;
+	int m_line = 1;
+	int m_column = 1;
+};
+```
+
+然后我们在 `lexer.cpp` 中给 `KEYWORDS` 做真正的定义：
+
+> 下面的文件在 `codeSources/v0-lexer-unordered_map.cpp` 中
+
+```cpp
+// lexer.cpp
+
+#include "lexer.h"
+
+// 注意哦，对于 `class` 中的 `static` 成员变量，必须要完整地写出变量的类型，不能用 `auto` 。另外，不要忘了在 `KEYWORDS` 前加上 `Lexer::` 
+const std::unordered_map<std::string, TokenType> Lexer::KEYWORDS = {
+    {"true", TokenType::True},
+    {"false", TokenType::False},
+    {"nil", TokenType::Nil},
+    {"var", TokenType::Var},
+    {"func", TokenType::Func},
+    {"if", TokenType::If},
+    {"elseif", TokenType::Elseif},
+    {"else", TokenType::Else},
+    {"while", TokenType::While},
+    {"for", TokenType::For},
+    {"in", TokenType::In},
+    {"return", TokenType::Return},
+    {"class", TokenType::Class},
+    {"struct", TokenType::Struct},
+    {"enum", TokenType::Enum},
+    {"extends", TokenType::Extends},
+    {"self", TokenType::Self},
+    {"super", TokenType::Super},
+    {"switch", TokenType::Switch},
+    {"case", TokenType::Case},
+    {"default", TokenType::Default},
+    {"import", TokenType::Import},
+    {"from", TokenType::From},
+    {"thread", TokenType::Thread},
+    {"channel", TokenType::Channel},
+};
+```
+
+最讨人厌的部分已经完成了，下面就是有趣的编写分词逻辑的环节了。我们不妨先拿几张纸，看看自己会怎么设计这个分词逻辑，随后进入 Part 2
+
+## 7.4 `lexer` 项目 Part 2：分词逻辑的实现
+
 
 第六章定义了 `Token`，但只完成了一半：还需要一个东西，能读入源代码字符串，逐字符扫描，把它切成 Token 列表。这就是 `Lexer`。
 
@@ -913,6 +1293,7 @@ char Lexer::peek(int offset) const {
 }
 
 char Lexer::advance() {
+	if (is_at_end()) return '\0';
     char c = m_source[m_pos++];
     if (c == '\n') {
         m_line++;
@@ -988,6 +1369,14 @@ Token Lexer::read_number() {
             value += advance();
         }
     }
+    
+    if (std::isalpha(current()) || current == '_') {
+	    throw std::runtime_err(
+	    "🌮 line " + std::to_string(start_line) + 
+	    ": Invalid number literal, unexpected character '" + 
+	    current() + "' after number."
+	    )
+    }
 
     return Token{TokenType::Number, value, start_line, start_column};
 }
@@ -1011,7 +1400,9 @@ Token Lexer::read_string() {
                 case 't':  value += '\t'; break;
                 case '"':  value += '"';  break;
                 case '\\': value += '\\'; break;
-                default:
+                default: 
+                // 对于未知的转义字符，我们选择原样保留，
+                // 因为 Taco 是一门脚本语言，不想要设计的那么严格
                     value += '\\';
                     value += current();
             }
@@ -1116,6 +1507,7 @@ Token Lexer::next_token() {
     advance();
 
     switch (c) {
+    // 不能用 `make_token()` 来，因为这个函数的行号和列号是不对的。
         case '+': return Token{TokenType::Plus,         "+", start_line, start_column};
         case '-': return Token{TokenType::Minus,        "-", start_line, start_column};
         case '*': return Token{TokenType::Star,         "*", start_line, start_column};
