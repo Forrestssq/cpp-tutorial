@@ -111,11 +111,11 @@ int y = static_cast<int>(Direction::North);    // 必须显式转换才行
 > `Tips`: **static_cast**
 >
 > 它是C++提供的几种"类型转换"操作符之一，专门用来做显式的、编译期检查的类型转换。语法长这样：
->
->```cpp
->  static_cast<目标类型>(要转换的东西)
->```
->
+
+```cpp
+ static_cast<目标类型>(要转换的东西)
+```
+
 > static_cast不需要加std::，因为它根本不是std命名空间里的一个函数或对象，而是C++语言本身内置的一个关键字，属于语法层面的东西，就跟if、for、return一样，是语言自带的，不需要任何命名空间前缀。
 
 
@@ -140,34 +140,34 @@ enum class Direction : char { North, South };    // enum class 也支持
 > 前向声明指的是：先告诉编译器"这个东西存在，它叫这个名字"，但暂时不给出完整定义，把细节留到后面再补。
 > 
 > 函数前向声明的例子：
-> 
-> ```cpp
-> // 前向声明：只说"这个函数存在，长这样"
-> int add(int a, int b);
-> 
-> int main() {
->     int result = add(3, 5);   // 编译器已经知道 add 长什么样，可以放心调用
->     return 0;
-> }
->
-> // 真正的实现，放在后面
-> int add(int a, int b) {
->     return a + b;
-> }
-> ```
-> 
+
+```cpp
+// 前向声明：只说"这个函数存在，长这样"
+int add(int a, int b);
+
+int main() {
+    int result = add(3, 5);   // 编译器已经知道 add 长什么样，可以放心调用
+    return 0;
+}
+
+// 真正的实现，放在后面
+int add(int a, int b) {
+    return a + b;
+}
+```
+
 > 如果没有前面那行声明，编译器在 `main` 里看到 `add(3, 5)` 时还不认识这个函数（因为定义在后面），会报错找不到。前向声明相当于提前给编译器打个招呼。
-> 
-> `enum class` 的前向声明：
-> 
-> ```cpp
-> enum class Color;        // 前向声明：只说"有一个叫 Color 的枚举类型"
-> 
-> // ... 中间可能隔着很多代码，甚至在另一个文件里 ...
-> 
-> enum class Color { Red, Green, Blue };  // 真正的完整定义在这里给出
-> ```
-> 
+
+`enum class` 的前向声明：
+
+```cpp
+enum class Color;        // 前向声明：只说"有一个叫 Color 的枚举类型"
+
+// ... 中间可能隔着很多代码，甚至在另一个文件里 ...
+
+enum class Color { Red, Green, Blue };  // 真正的完整定义在这里给出
+```
+
 > 这在大型项目里很有用，比如 `token.h` 和 `ast.h` 这类文件经常需要互相引用对方的类型，如果两个头文件互相 `#include`，容易陷入循环包含的死结。这时可以先做前向声明，告诉编译器"这个类型存在，我先用着"，等真正需要访问具体成员时，再正式包含对应的头文件。
 > 
 > 为什么 enum class 能前向声明而 enum 不行？老式 `enum` 在没有指定底层类型时，编译器需要先看到全部枚举成员，才能推算出用多大的内存存储这个枚举；而 `enum class` 默认底层类型固定为 `int`，不需要靠成员推算，所以可以先声明、后定义。
@@ -284,21 +284,21 @@ std::string token_type_to_string(TokenType type);
 
 > `Tips` `switch` 语法。
 > `C++` 中的 `switch` 语法和 `C` 中的一样，都是：
->
-> ```cpp
-> switch (表达式) {
->   case 值1:
->     语句;
->     break;
->   case 值2:
->     语句;
->     return 值;  // 用 return 时可以不写 break
->   default:
->     语句;
->     break;
-> }
-> ```
->
+
+```cpp
+switch (表达式) {
+  case 值1:
+    语句;
+    break;
+  case 值2:
+    语句;
+    return 值;  // 用 return 时可以不写 break
+  default:
+    语句;
+    break;
+}
+```
+
 > 注意每个 `case` 后面要 `break;` ，否则会和 `C` 一样穿透。
 
 > 该文件在 `codeSources/v0-token.cpp`
