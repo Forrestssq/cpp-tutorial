@@ -1,7 +1,5 @@
 # 第七章：类的基础
 
----
-
 从这一章开始进入第二部分：类与对象。
 
 类是 C++ 最核心的特性之一，也是和 C 差距最大的地方。Python 里已经有类的概念，所以这里不从零解释"什么是封装"，而是直接对比：C++ 的类和 Python 的类有什么相同，有什么不同，为什么会有这些不同。
@@ -793,7 +791,13 @@ static Logger& get_instance() {
 
 ## 7.3 `lexer` 项目 Part 1：大框架
 
-我们回到 `Lexer` 到设计中来吧。下面是作者的得意之作，保证逻辑清晰地从头开始把这个 `lexer` 分词器不跳步地一步一步写出来。
+我们回到 `Lexer` 的设计中来吧。下面是作者的得意之作，保证逻辑清晰地从头开始把这个 `lexer` 分词器不跳步一步一步地写出来。
+
+> 吐槽：
+> 
+> 如果读者有心去翻一下本章节原始版本的话（仓库的第一次的commit），就会发现，Claude对于 `class` 但讲解极为混乱且直接把最后的两个代码文件放了出来，注释没几行，讲解更是一点都没有。尽管我已经多次要求它详细的从头讲解，但他就是不听，一看到代码就兴奋的忘乎所以，将所有的烦恼忧虑以及提示词都抛之脑后。
+> 
+> NOTED: Never trust AI when it comes to code explanation. They only get carried away and dump all the code on you at once without following any other prompts.
 
 我们先要明确 `Lexer` 需要什么数据。
 
@@ -830,7 +834,7 @@ var z = x + y;
 > 上面是人看到的。但是对于程序来说，它看到的是：
 
 ```cpp
-var x = 10;\nvar y = 10;\nvar z = x + y;
+var x = 10;\nvar y = 20;\nvar z = x + y;
 ```
 
 > 也就是说，程序没有"行号""列号"这两个概念：因为都是字符编码，都是在"一行"里面的。
@@ -946,7 +950,7 @@ private:
 std::string example_code = "var x = 10";
 
 Lexer code1(example_code);
-std::vector<Token> tokens = code1.tokenize()
+std::vector<Token> tokens = code1.tokenize();
 ```
 
 然后一个一个分行打印出来，结果是这样的（TokenType + code + 行号）：
@@ -971,7 +975,7 @@ private:
 	int m_pos = 0;
 	int m_line = 1;
 	int m_column = 1;
-}
+};
 ```
 
 那么我们怎么实现这个函数呢？
@@ -1040,7 +1044,7 @@ auto it = KEYWORDS.find("var");
 
 那么就有两种可能：
 
-找到了：`it` 会指向表里面的那一行（ `{"var", TokenType::var}` ），然后我们可以用 `it->second` 拿到对应的value（即 `TokenType::Var` ）。
+找到了：`it` 会指向表里面的那一行（ `{"var", TokenType::Var}` ），然后我们可以用 `it->second` 拿到对应的value（即 `TokenType::Var` ）。
 
 注意，`KEYWORDS` 本身是一个 `unordered_map`（哈希表容器），它实现了迭代功能，内部存的是一个个 `pair` 这种 struct。而 `std::pair` 的简化定义如下：
 
@@ -1052,7 +1056,7 @@ struct pair {
 };
 ```
 
-它是一个数组！
+它是一个 `struct` ！
 
 所以 `KEYWORDS.find("var")` 返回的 `it` 是一个迭代器，它指向 `KEYWORDS` 这个 `unordered_map` 里的某一个 `pair`。每个 叫做`pair` 的 `struct` 都有 `first`（key）和 `second`（value）两个成员，所以我们可以用 `it->first` 取出 key（`"var"`），用 `it->second` 取出 value（`TokenType::Var`）。
 
@@ -1172,12 +1176,15 @@ const std::unordered_map<std::string, TokenType> Lexer::KEYWORDS = {
 
 ## 7.4 `lexer` 项目 Part 2：分词逻辑的实现
 
+接下来的内容主要是代码逻辑的讲解，内容将十分清晰，但是如果我们是自己先设计、时不时地对照着下一章给出的完整的代码来自己实现的话，那么将会感受到无限的快乐。
 
 第六章定义了 `Token`，但只完成了一半：还需要一个东西，能读入源代码字符串，逐字符扫描，把它切成 Token 列表。这就是 `Lexer`。
 
 `Token` 用 `struct` 就够了，因为它只是一捆数据，没有行为。`Lexer` 不一样：它有内部状态（读到第几个字符了、当前第几行第几列），还有一堆只在内部使用的辅助函数（`advance`、`peek`、`match`……），不希望外部代码随便碰这些细节，只暴露一个干净的接口——"给我源代码，还我 Token 列表"。这正是上面几节讲的封装：数据和操作数据的函数绑定在一起，用 `private` 藏起实现细节，只留 `public` 接口。所以 `Lexer` 用 `class` 来写。
 
 按照 7.2 提到的惯例，`Lexer` 把声明和实现分开：`lexer.h` 只放接口，`lexer.cpp` 放具体实现。
+
+## 7.5 `lexer` 最终代码（ `.h` 和 `.cpp` ）
 
 ### lexer.h
 
@@ -1583,7 +1590,7 @@ std::vector<Token> Lexer::tokenize() {
 
 ---
 
-## 7.4 测试：把 `var x = 10;` 切成 Token 列表
+## 7.6 测试：把 `var x = 10;` 切成 Token 列表
 
 ### main.cpp
 
